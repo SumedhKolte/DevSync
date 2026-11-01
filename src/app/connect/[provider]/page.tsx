@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { githubAppSlug, jiraSites } from "@/lib/oauth";
 import { decrypt } from "@/lib/server/crypto";
+import { getPendingTokens } from "@/lib/server/pending-tokens";
 import {
   githubPages,
   providerFetch,
@@ -42,7 +43,7 @@ export default async function SelectAccount({
   if (!user) redirect("/login");
   const { provider } = await params;
   if (!["github", "jira"].includes(provider)) notFound();
-  const secret = (await cookies()).get(`devsync_pending_${provider}`)?.value;
+  const secret = getPendingTokens(await cookies(), provider);
   if (!secret) redirect("/connections");
   const slug = githubAppSlug(process.env.GITHUB_APP_SLUG || "");
   const options = await accountOptions(provider, secret).catch(() => null);

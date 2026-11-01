@@ -1,7 +1,7 @@
 export type IntegrationProvider = "github" | "jira";
 // Granular scopes, taken from Atlassian's OpenAPI spec for each Jira endpoint
-// DevSync calls. Classic scopes (read:jira-work …) are not mixed in: Atlassian
-// denied consent for this app when classic and granular scopes were combined.
+// DevSync calls. The board API accepts only granular scopes (it needs
+// read:project:jira), so the whole request uses granular scopes.
 export const jiraScopes = [
   // Project search (scope selection and access checks)
   "read:project:jira",

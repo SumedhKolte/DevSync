@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { encrypt } from "@/lib/server/crypto";
 import { appOrigin, HttpError, requireUser } from "@/lib/server/supabase";
 import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
+import {
+  getPendingTokens,
+  setPendingTokens,
+} from "@/lib/server/pending-tokens";
 // Provider error codes are short identifiers, e.g. redirect_uri_mismatch.
 const providerCode = (value: unknown) =>
   typeof value === "string"
@@ -22,7 +26,7 @@ export async function GET(
     const jar = await cookies();
     if (provider === "github" && url.searchParams.has("installation_id"))
       return NextResponse.redirect(
-        `${appOrigin()}${jar.get("devsync_pending_github") ? "/connect/github" : "/api/connect/github"}`,
+        `${appOrigin()}${getPendingTokens(jar, "github") ? "/connect/github" : "/api/connect/github"}`,
       );
     const expected = jar.get(`devsync_oauth_${provider}`)?.value;
     const state = url.searchParams.get("state");
@@ -80,8 +84,9 @@ export async function GET(
         "Provider authorization failed. Check the app configuration and reconnect.",
       );
     }
-    jar.set(
-      `devsync_pending_${provider}`,
+    setPendingTokens(
+      jar,
+      provider,
       encrypt({
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
@@ -89,13 +94,7 @@ export async function GET(
           ? Date.now() + tokens.expires_in * 1000
           : undefined,
       }),
-      {
-        httpOnly: true,
-        secure: appOrigin().startsWith("https:"),
-        sameSite: "lax",
-        maxAge: 600,
-        path: "/",
-      },
+      { secure: appOrigin().startsWith("https:") },
     );
     return NextResponse.redirect(`${appOrigin()}/connect/${provider}`);
   } catch (e) {

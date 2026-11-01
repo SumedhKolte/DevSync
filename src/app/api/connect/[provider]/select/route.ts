@@ -9,6 +9,10 @@ import {
 } from "@/lib/server/providers";
 import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
 import {
+  clearPendingTokens,
+  getPendingTokens,
+} from "@/lib/server/pending-tokens";
+import {
   appOrigin,
   assertOrigin,
   HttpError,
@@ -25,7 +29,7 @@ export async function POST(
     if (!["github", "jira"].includes(provider))
       throw new HttpError(404, "Unknown provider");
     const jar = await cookies();
-    const secret = jar.get(`devsync_pending_${provider}`)?.value;
+    const secret = getPendingTokens(jar, provider);
     if (!secret)
       throw new HttpError(
         400,
@@ -67,7 +71,7 @@ export async function POST(
       p_ciphertext: secret,
     });
     if (error) throw error;
-    jar.delete(`devsync_pending_${provider}`);
+    clearPendingTokens(jar, provider);
     return NextResponse.redirect(`${appOrigin()}/connections`, 303);
   } catch (e) {
     return connectionErrorRedirect(e);
