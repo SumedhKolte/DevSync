@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import type { Database } from "../src/lib/database.types";
 import { retryDecision } from "../src/lib/server/retry";
 import { withProviderBudget } from "../src/lib/server/provider-budget";
@@ -19,12 +20,25 @@ const db = createClient<Database>(
   { auth: { persistSession: false, autoRefreshToken: false } },
 );
 let stopping = false;
-process.on("SIGINT", () => {
+let lastPollAt: string | null = null;
+// Web-service hosts require an open port, and a scheduler pings /healthz so a
+// free instance that sleeps when idle keeps polling the queue.
+const health = process.env.PORT
+  ? createServer((request, response) => {
+      const known = request.url === "/healthz" || request.url === "/";
+      response.writeHead(known ? 200 : 404, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      response.end(JSON.stringify(known ? { ok: true, lastPollAt } : {}));
+    }).listen(Number(process.env.PORT), "0.0.0.0")
+  : null;
+const stop = () => {
   stopping = true;
-});
-process.on("SIGTERM", () => {
-  stopping = true;
-});
+  health?.close();
+};
+process.on("SIGINT", stop);
+process.on("SIGTERM", stop);
 async function checked<T extends { error: unknown }>(
   promise: PromiseLike<T>,
 ): Promise<T> {
@@ -210,6 +224,7 @@ async function main() {
   while (!stopping) {
     try {
       const { data } = await checked(db.rpc("worker_read"));
+      lastPollAt = new Date().toISOString();
       const messages = z
         .array(
           z.object({
@@ -222,8 +237,14 @@ async function main() {
       if (!messages.length)
         await new Promise((resolve) => setTimeout(resolve, 3000));
       else for (const message of messages) await job(message);
-    } catch {
-      log("worker.connection_error");
+    } catch (error) {
+      // Supabase and network errors carry no credentials; keep the cause.
+      log("worker.connection_error", {
+        message:
+          error instanceof Error
+            ? error.message
+            : String((error as { message?: unknown })?.message ?? error),
+      });
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }
   }
