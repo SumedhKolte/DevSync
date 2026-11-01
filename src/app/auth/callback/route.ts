@@ -20,5 +20,9 @@ export async function GET(request: Request) {
   } catch {
     /* Redirect to a useful recovery state without exposing provider details. */
   }
-  return NextResponse.redirect(`${appOrigin()}/login?error=invalid-link`);
+  // A provider error (for example a cancelled Google sign-in) or a failed
+  // exchange returns to sign-in with a readable message.
+  return NextResponse.redirect(
+    `${appOrigin()}/login?error=${url.searchParams.has("error") || code ? "oauth" : "invalid-link"}`,
+  );
 }

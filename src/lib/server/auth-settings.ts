@@ -29,3 +29,18 @@ export async function assertPasswordSignupEnabled() {
       "Password sign-up needs one setup change: the workspace administrator must turn off Confirm email in Supabase Authentication settings. No account was created and no email was sent.",
     );
 }
+
+/** True when the Supabase project accepts Google as a sign-in provider. */
+export async function googleSignInEnabled() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) return false;
+  const response = await fetch(`${url}/auth/v1/settings`, {
+    headers: { apikey: key },
+    cache: "no-store",
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) return false;
+  const settings = await response.json();
+  return settings.external?.google === true && !settings.disable_signup;
+}

@@ -23,7 +23,11 @@ export default async function LoginPage({
       initialError={
         error === "invalid-link"
           ? "Email-link sign-in is no longer offered. Please sign in with your email and password."
-          : undefined
+          : error === "oauth"
+            ? "Google sign-in didn’t finish. Try again, or sign in with your email and password."
+            : error === "google-unavailable"
+              ? "Google sign-in isn’t available right now. Sign in with your email and password."
+              : undefined
       }
     />
   );

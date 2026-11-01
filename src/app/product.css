@@ -1074,6 +1074,7 @@ h1 {
 }
 .auth-page .login-story {
   align-self: stretch;
+  justify-self: stretch;
   max-width: none;
   padding: 58px clamp(35px, 6vw, 100px);
   background: #142e3a;
@@ -1614,4 +1615,20 @@ h1 {
   .table-scroll .data-table .work-title strong {
     max-width: none;
   }
+}
+.auth-card .auth-google {
+  width: 100%;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  background: #fff;
+  border: 1px solid #cbd6dd;
+  color: #24343d;
+  font-weight: 600;
+}
+.auth-card .auth-google:hover:not(:disabled) {
+  background: #f3f6f8;
+}
+.auth-card .auth-divider + form {
+  margin-top: 0;
 }
