@@ -6,8 +6,8 @@ All application APIs are same-origin routes. User-facing mutations verify the Or
 
 | Route                               | Method    | Behavior                                                                                        |
 | ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------- |
-| `/auth/login`                       | POST      | Sign in with email and password; all email-sending modes are rejected.                         |
-| `/auth/signup` | POST | Create a password account and session after confirming no-email signup settings. |
+| `/auth/login`                       | POST      | Sign in with email and password; all email-sending modes are rejected.                          |
+| `/auth/signup`                      | POST      | Create a password account and session after confirming no-email signup settings.                |
 | `/auth/callback`                    | GET       | Exchange a PKCE authorization code for a session.                                               |
 | `/auth/signout`                     | POST      | Clear the session.                                                                              |
 | `/api/connect/{github\|jira}`       | GET       | Begin provider authorization with a short-lived state cookie.                                   |
