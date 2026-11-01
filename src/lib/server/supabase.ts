@@ -1,4 +1,4 @@
-import { HttpError } from "./http";
+import { HttpError, sessionCookieOptions } from "./http";
 export { HttpError } from "./http";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
@@ -18,6 +18,7 @@ export async function userClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
+      cookieOptions: sessionCookieOptions(),
       cookies: {
         getAll: () => jar.getAll(),
         setAll: (list) => {
