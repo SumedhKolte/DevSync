@@ -118,6 +118,12 @@ body {
 .sidebar .note-icon {
   background: #2e4d57;
   color: #b4e8d8;
+  /* A small badge, not a full-width block. */
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
 }
 .sidebar .profile {
   border-color: #34505d;
@@ -587,6 +593,8 @@ h1 {
 .sync-history {
   margin: 24px 0;
   overflow: hidden;
+  /* Line up with the connection cards and callouts above it. */
+  max-width: 1100px;
 }
 .sync-history .section-heading {
   padding: 23px 25px;
@@ -1570,4 +1578,40 @@ h1 {
   color: #4b5f6c;
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Phones: show each work item or pull request as a stacked card so status,
+   checks and people stay visible instead of scrolling off to the side. */
+@media (max-width: 640px) {
+  .table-scroll .data-table,
+  .table-scroll .data-table tbody {
+    display: block;
+    min-width: 0;
+  }
+  .table-scroll .data-table thead {
+    display: none;
+  }
+  .table-scroll .data-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e6ecef;
+  }
+  .table-scroll .data-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .table-scroll .data-table td:first-child {
+    flex: 0 0 100%;
+  }
+  .table-scroll .data-table td:last-child {
+    margin-left: auto;
+  }
+  .table-scroll .data-table .work-title strong {
+    max-width: none;
+  }
 }

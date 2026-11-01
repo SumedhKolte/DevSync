@@ -3,6 +3,7 @@ import { isConfigured, userClient } from "@/lib/server/supabase";
 import { Login } from "@/components/login";
 // Session-dependent: render per request, never at build time.
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Sign in · DevSync" };
 export default async function LoginPage({
   searchParams,
 }: {

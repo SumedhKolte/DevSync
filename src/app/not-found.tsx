@@ -1,4 +1,5 @@
 import Link from "next/link";
+export const metadata = { title: "Page not found · DevSync" };
 export default function NotFound() {
   return (
     <main className="error-page">
