@@ -3,10 +3,16 @@ import { NextResponse } from "next/server";
 import { encrypt } from "@/lib/server/crypto";
 import { appOrigin, HttpError, requireUser } from "@/lib/server/supabase";
 import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
+// Provider error codes are short identifiers, e.g. redirect_uri_mismatch.
+const providerCode = (value: unknown) =>
+  typeof value === "string"
+    ? value.replace(/[^\w .:-]/g, "").slice(0, 120)
+    : "";
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ provider: string }> },
 ) {
+  let detail: string | undefined;
   try {
     await requireUser();
     const { provider } = await params;
@@ -21,7 +27,17 @@ export async function GET(
     const expected = jar.get(`devsync_oauth_${provider}`)?.value;
     const state = url.searchParams.get("state");
     jar.delete(`devsync_oauth_${provider}`);
-    if (!expected || state !== expected || !url.searchParams.get("code"))
+    // Providers send people back with ?error=… when they reject the request.
+    const rejected = providerCode(url.searchParams.get("error"));
+    if (rejected) {
+      const description = providerCode(
+        url.searchParams.get("error_description"),
+      );
+      detail = description ? `${rejected}: ${description}` : rejected;
+    } else if (!expected) detail = "sign-in state cookie missing or expired";
+    else if (state !== expected) detail = "state did not match this browser";
+    else if (!url.searchParams.get("code")) detail = "no authorization code";
+    if (detail)
       throw new HttpError(
         400,
         "Authorization was cancelled or expired. Please reconnect from Connections.",
@@ -54,12 +70,16 @@ export async function GET(
         }),
       },
     );
-    const tokens = await r.json();
-    if (!r.ok || !tokens.access_token)
+    const tokens = await r.json().catch(() => ({}));
+    if (!r.ok || !tokens.access_token) {
+      const code = providerCode(tokens.error) || `HTTP ${r.status}`;
+      const description = providerCode(tokens.error_description);
+      detail = `token exchange failed (${code}${description ? `: ${description}` : ""})`;
       throw new HttpError(
         400,
         "Provider authorization failed. Check the app configuration and reconnect.",
       );
+    }
     jar.set(
       `devsync_pending_${provider}`,
       encrypt({
@@ -79,6 +99,8 @@ export async function GET(
     );
     return NextResponse.redirect(`${appOrigin()}/connect/${provider}`);
   } catch (e) {
-    return connectionErrorRedirect(e);
+    if (detail)
+      console.warn(JSON.stringify({ event: "oauth.callback_failed", detail }));
+    return connectionErrorRedirect(e, detail);
   }
 }

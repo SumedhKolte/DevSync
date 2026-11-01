@@ -2,9 +2,9 @@ import Link from "next/link";
 export default async function ConnectionError({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string }>;
+  searchParams: Promise<{ reason?: string; detail?: string }>;
 }) {
-  const { reason } = await searchParams;
+  const { reason, detail } = await searchParams;
   return (
     <main className="password-page">
       <section className="login-card">
@@ -15,6 +15,11 @@ export default async function ConnectionError({
             ? "This integration isn’t configured yet. Ask your workspace administrator to finish the GitHub or Jira app setup, then try again."
             : "Authorization was cancelled, expired, or could not be completed. Return to Connections and start again."}
         </p>
+        {detail && (
+          <p className="connect-error-detail">
+            Provider response: <code>{detail.slice(0, 200)}</code>
+          </p>
+        )}
         <Link href="/connections" className="button button-primary">
           Back to connections
         </Link>

@@ -1540,3 +1540,13 @@ h1 {
 .sidebar .nav-item {
   white-space: nowrap;
 }
+.connect-error-detail {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f1f4f6;
+  color: #3e5461;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
