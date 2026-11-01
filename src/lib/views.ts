@@ -18,3 +18,14 @@ export function resolveView(segments: string[] = []) {
   if (paths.length > 1 || !views.includes(view as View)) return null;
   return { demo, view: view as View };
 }
+export const viewTitles: Record<View, string> = {
+  overview: "Overview",
+  "work-items": "Work items",
+  "pull-requests": "Pull requests",
+  evidence: "Delivery Evidence",
+  activity: "Activity",
+  connections: "Connections",
+  settings: "Settings",
+  repositories: "Repositories",
+  sprints: "Sprints",
+};
