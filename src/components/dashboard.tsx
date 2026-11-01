@@ -2070,7 +2070,18 @@ function Connections({
                     )}
                   </div>
                   {connection.error && (
-                    <div className="connection-error">{connection.error}</div>
+                    // A connected source can carry advisory notes, such as
+                    // webhooks being unavailable on a local HTTP origin.
+                    <div
+                      className={
+                        connection.status === "error"
+                          ? "connection-error"
+                          : "connection-note"
+                      }
+                      role={connection.status === "error" ? "alert" : "note"}
+                    >
+                      {connection.error}
+                    </div>
                   )}
                   <div className="integration-actions">
                     <Button

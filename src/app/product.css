@@ -1562,3 +1562,12 @@ h1 {
 .setup-scopes code {
   overflow-wrap: anywhere;
 }
+.connection-note {
+  margin-top: 15px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f1f4f6;
+  color: #4b5f6c;
+  font-size: 13px;
+  line-height: 1.5;
+}

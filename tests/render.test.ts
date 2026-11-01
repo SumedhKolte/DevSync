@@ -28,6 +28,29 @@ describe("server-rendered product contracts", () => {
     expect(html).not.toContain("NaN");
     expect(html).not.toContain("undefined");
   });
+  it("shows advisory notes on healthy connections without error styling", () => {
+    const data = getDemoData();
+    const [connected, failed] = data.connections;
+    const html = renderToStaticMarkup(
+      createElement(Dashboard, {
+        data: {
+          ...data,
+          mode: "live",
+          connections: [
+            { ...connected, error: "Webhooks need a public HTTPS app URL." },
+            { ...failed, status: "error", error: "Authorization expired." },
+          ],
+        },
+        view: "connections",
+      }),
+    );
+    expect(html).toMatch(
+      /class="connection-note" role="note">Webhooks need a public HTTPS app URL\./,
+    );
+    expect(html).toMatch(
+      /class="connection-error" role="alert">Authorization expired\./,
+    );
+  });
   it("uses the same snapshot when rendering on different clocks", () => {
     const data = getDemoData();
     vi.useFakeTimers();
