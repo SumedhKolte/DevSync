@@ -14,6 +14,16 @@ import {
   type ProviderTokens,
 } from "../src/lib/server/providers";
 import { ensureJiraWebhook } from "../src/lib/server/jira-webhooks";
+// Fail with the missing names rather than an opaque client error at startup.
+const missing = [
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "TOKEN_ENCRYPTION_KEY",
+].filter((key) => !process.env[key]?.trim());
+if (missing.length) {
+  console.error(JSON.stringify({ event: "worker.misconfigured", missing }));
+  process.exit(1);
+}
 const db = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,

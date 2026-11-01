@@ -54,3 +54,14 @@ export async function readJson(request: Request): Promise<unknown> {
     throw new HttpError(400, "Request must contain valid JSON.");
   }
 }
+
+/**
+ * Session cookies are only read on the server, so keep them away from page
+ * scripts, and send them over HTTPS only when the app is served over HTTPS.
+ */
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: (process.env.NEXT_PUBLIC_APP_URL || "").startsWith("https:"),
+  };
+}
