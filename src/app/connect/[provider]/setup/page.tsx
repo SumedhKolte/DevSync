@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { appOrigin, userClient } from "@/lib/server/supabase";
 import { githubAppSlug, jiraScopes } from "@/lib/oauth";
+import { githubCredentialStatus } from "@/lib/server/providers";
 export const dynamic = "force-dynamic";
 export default async function Setup({
   params,
@@ -41,8 +42,14 @@ export default async function Setup({
       /* Report an unverified check without blocking a private app. */
     }
   }
+  const credentials =
+    github && !missing.length ? await githubCredentialStatus() : "unverified";
   const blocked =
-    missing.length > 0 || appStatus === "mismatch" || (github && !slug);
+    missing.length > 0 ||
+    appStatus === "mismatch" ||
+    (github && !slug) ||
+    credentials === "unknown-client" ||
+    credentials === "wrong-secret";
   return (
     <main className="password-page">
       <section className="login-card integration-setup">
@@ -70,6 +77,26 @@ export default async function Setup({
         {github ? (
           <>
             <h2>App and installation</h2>
+            {credentials === "valid" && (
+              <p role="status">
+                GitHub recognises the configured Client ID and secret.
+              </p>
+            )}
+            {credentials === "unknown-client" && (
+              <p role="alert">
+                GitHub doesn’t recognise the configured Client ID
+                (GITHUB_CLIENT_ID), so it would show a 404 page. Copy the Client
+                ID from your GitHub App’s General settings page into the server
+                configuration, then restart DevSync.
+              </p>
+            )}
+            {credentials === "wrong-secret" && (
+              <p role="alert">
+                The Client ID is valid, but GITHUB_CLIENT_SECRET doesn’t belong
+                to it. Generate a new client secret on the GitHub App’s General
+                settings page and update the server configuration.
+              </p>
+            )}
             {appStatus === "matched" && (
               <p role="status">
                 The public app matches the configured client ID.
@@ -81,12 +108,8 @@ export default async function Setup({
                 registrations. Correct them before continuing.
               </p>
             )}
-            {(!slug || appStatus === "not-found") && (
-              <p role="alert">
-                {!slug
-                  ? "The GitHub App slug is missing or invalid."
-                  : "GitHub returned 404 for the configured app page. Confirm the slug in your app settings. A private app may require the app owner’s account."}
-              </p>
+            {!slug && (
+              <p role="alert">The GitHub App slug is missing or invalid.</p>
             )}
             <p>
               Authorize using the GitHub App’s Client ID, then install that same

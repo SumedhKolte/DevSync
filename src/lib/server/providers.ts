@@ -173,3 +173,39 @@ export async function listResources(
   }
   return result;
 }
+
+export type GithubCredentialStatus =
+  "valid" | "unknown-client" | "wrong-secret" | "unverified";
+/**
+ * Exchange a deliberately invalid code. GitHub answers 404 for an unknown
+ * client ID, incorrect_client_credentials for a wrong secret, and
+ * bad_verification_code when both are right. No token is ever issued.
+ */
+export async function githubCredentialStatus(): Promise<GithubCredentialStatus> {
+  try {
+    const response = await fetch(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: process.env.GITHUB_CLIENT_ID?.trim(),
+          client_secret: process.env.GITHUB_CLIENT_SECRET?.trim(),
+          code: "devsync-credential-check",
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (response.status === 404) return "unknown-client";
+    const body = await response.json().catch(() => ({}));
+    if (body.error === "incorrect_client_credentials") return "wrong-secret";
+    if (body.error === "bad_verification_code") return "valid";
+  } catch {
+    /* Network failures leave the check unverified rather than blocking. */
+  }
+  return "unverified";
+}

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  githubCredentialStatus,
   githubPages,
   providerFetch,
   ProviderError,
@@ -44,6 +45,23 @@ describe("provider contract boundaries", () => {
       ),
     ).toEqual([{ old: true }]);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("tells an unknown GitHub client ID from a wrong secret", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: "Not Found" }, { status: 404 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: "incorrect_client_credentials" }),
+      )
+      .mockResolvedValueOnce(Response.json({ error: "bad_verification_code" }))
+      .mockRejectedValueOnce(new TypeError("offline"));
+    vi.stubGlobal("fetch", fetch);
+    expect(await githubCredentialStatus()).toBe("unknown-client");
+    expect(await githubCredentialStatus()).toBe("wrong-secret");
+    expect(await githubCredentialStatus()).toBe("valid");
+    expect(await githubCredentialStatus()).toBe("unverified");
   });
   it("preserves rate-limit delays without exposing provider error bodies", async () => {
     vi.stubGlobal(
