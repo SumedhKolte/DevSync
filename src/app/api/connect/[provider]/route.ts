@@ -1,12 +1,9 @@
 import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import {
-  apiError,
-  appOrigin,
-  HttpError,
-  requireUser,
-} from "@/lib/server/supabase";
+import { appOrigin, HttpError, requireUser } from "@/lib/server/supabase";
+import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
+import { authorizationUrl, type IntegrationProvider } from "@/lib/oauth";
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ provider: string }> },
@@ -18,7 +15,12 @@ export async function GET(
       throw new HttpError(404, "Unknown provider.");
     if (
       !process.env.TOKEN_ENCRYPTION_KEY ||
-      !process.env[provider === "jira" ? "JIRA_CLIENT_ID" : "GITHUB_CLIENT_ID"]
+      !process.env[
+        provider === "jira" ? "JIRA_CLIENT_ID" : "GITHUB_CLIENT_ID"
+      ] ||
+      !process.env[
+        provider === "jira" ? "JIRA_CLIENT_SECRET" : "GITHUB_CLIENT_SECRET"
+      ]
     )
       throw new HttpError(
         503,
@@ -33,31 +35,17 @@ export async function GET(
       maxAge: 600,
       path: "/",
     });
-    const url = new URL(
-      provider === "jira"
-        ? "https://auth.atlassian.com/authorize"
-        : "https://github.com/login/oauth/authorize",
+    return NextResponse.redirect(
+      authorizationUrl(
+        provider as IntegrationProvider,
+        process.env[
+          provider === "jira" ? "JIRA_CLIENT_ID" : "GITHUB_CLIENT_ID"
+        ]!,
+        appOrigin(),
+        state,
+      ),
     );
-    url.searchParams.set(
-      "client_id",
-      process.env[provider === "jira" ? "JIRA_CLIENT_ID" : "GITHUB_CLIENT_ID"]!,
-    );
-    url.searchParams.set("state", state);
-    url.searchParams.set(
-      "redirect_uri",
-      `${appOrigin()}/api/connect/${provider}/callback`,
-    );
-    if (provider === "jira") {
-      url.searchParams.set("audience", "api.atlassian.com");
-      url.searchParams.set("response_type", "code");
-      url.searchParams.set("prompt", "consent");
-      url.searchParams.set(
-        "scope",
-        "read:jira-work read:jira-user manage:jira-webhook offline_access read:board-scope:jira-software read:sprint:jira-software",
-      );
-    }
-    return NextResponse.redirect(url);
   } catch (e) {
-    return apiError(e);
+    return connectionErrorRedirect(e);
   }
 }

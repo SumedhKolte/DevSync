@@ -52,21 +52,31 @@ export async function importGithub(c: ConnectionRow, token: string) {
     linkEvidence: { field: string; keys: string[] }[];
   })[] = [];
   const events: Activity[] = [];
-  const resources = await githubMetadata(c, token);
+  const resources = await githubMetadata(c, token, available);
+  // Retain open PRs and closed/merged PRs updated within 90 days.
+  const cutoff = Date.now() - 90 * 86400000;
+  const recent = (p: GithubPR) => Date.parse(p.updated_at) > cutoff;
   for (const selected of c.resources) {
     const resource = allowed.get(selected.id);
     if (!resource) continue; // Revoked repo vanishes in atomic snapshot.
     const repository = resource.name;
-    const prs = await githubPages<GithubPR>(
-      `/repos/${repository}/pulls?state=all&sort=updated&direction=desc`,
+    const open = await githubPages<GithubPR>(
+      `/repos/${repository}/pulls?state=open&sort=updated&direction=desc`,
       token,
     );
-    // Retain open PRs and closed/merged PRs updated within 90 days.
-    for (const summary of prs.filter(
-      (p) =>
-        p.state === "open" ||
-        Date.parse(p.updated_at) > Date.now() - 90 * 86400000,
-    )) {
+    // Closed PRs are newest-first, so stop paging once a page reaches the cutoff
+    // instead of walking the repository's entire PR history.
+    const closed = await githubPages<GithubPR>(
+      `/repos/${repository}/pulls?state=closed&sort=updated&direction=desc`,
+      token,
+      undefined,
+      (batch) => !batch.length || !recent(batch[batch.length - 1]),
+    );
+    const prs = [...open, ...closed.filter(recent)];
+    // Fail before the per-PR detail requests rather than after them.
+    if (rows.length + prs.length > 1000)
+      throw new Error("Import exceeds 1,000 PRs. Select fewer repositories.");
+    for (const summary of prs) {
       const { data: pr } = await githubFetch<GithubPR>(
         `/repos/${repository}/pulls/${summary.number}`,
         token,
@@ -85,10 +95,8 @@ export async function importGithub(c: ConnectionRow, token: string) {
         additions: number;
         deletions: number;
       }>(`/repos/${repository}/pulls/${pr.number}/files`, token);
-      if (pr.changed_files > files.length || pr.commits > commits.length)
-        throw new Error(
-          "Import exceeds GitHub PR file/commit retrieval limits. Narrow the PR scope.",
-        );
+      // GitHub lists at most 250 commits and 3,000 files per PR. Keep what is
+      // retrievable; title, branch and description still supply issue keys.
       const workflows = await githubPages<{
         name: string;
         status: string;
@@ -192,8 +200,6 @@ export async function importGithub(c: ConnectionRow, token: string) {
           at: commit.commit.author.date,
           url: commit.html_url,
         });
-      if (rows.length > 1000)
-        throw new Error("Import exceeds 1,000 PRs. Select fewer repositories.");
     }
   }
   return {
@@ -217,13 +223,36 @@ interface JiraIssue {
     [key: string]: unknown;
   };
 }
+type AdfNode = {
+  type?: string;
+  text?: string;
+  attrs?: { text?: string; shortName?: string; url?: string; order?: number };
+  content?: unknown[];
+};
+const inlineAdf = new Set(["paragraph", "heading", "codeBlock"]);
+/** Plain text from Atlassian Document Format, keeping paragraphs, lists and breaks readable. */
 export function adfText(node: unknown): string {
   if (!node || typeof node !== "object") return "";
-  const n = node as { text?: string; type?: string; content?: unknown[] };
-  return (
-    n.text ||
-    (n.content || []).map(adfText).join(n.type === "doc" ? "\n\n" : "")
-  );
+  const n = node as AdfNode;
+  if (n.text) return n.text;
+  if (n.type === "hardBreak") return "\n";
+  if (n.type === "mention" || n.type === "emoji")
+    return n.attrs?.text || n.attrs?.shortName || "";
+  if (n.type === "inlineCard") return n.attrs?.url || "";
+  const children = (n.content || []).map(adfText);
+  if (n.type === "bulletList" || n.type === "orderedList") {
+    const start = n.attrs?.order ?? 1;
+    return children
+      .map((item, index) =>
+        `${n.type === "orderedList" ? `${start + index}.` : "-"} ${item}`.replace(
+          /\n/g,
+          "\n  ",
+        ),
+      )
+      .join("\n");
+  }
+  if (n.type === "doc") return children.filter(Boolean).join("\n\n");
+  return children.join(!n.type || inlineAdf.has(n.type) ? "" : "\n");
 }
 export async function importJira(c: ConnectionRow, token: string) {
   const base = `https://api.atlassian.com/ex/jira/${c.config.cloud_id}`;
@@ -326,6 +355,6 @@ export async function importJira(c: ConnectionRow, token: string) {
   return {
     rows,
     events: await jiraStatusHistory(c, token, rows),
-    resources: await jiraSprintMetadata(c, token),
+    resources: await jiraSprintMetadata(c, token, available),
   };
 }

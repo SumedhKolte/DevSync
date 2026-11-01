@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import {
   BookOpen,
   ChevronRight,
@@ -20,7 +21,11 @@ export function RepositoryView({
   data: WorkspaceData;
   onSelectItem: (item: WorkItem) => void;
 }) {
-  const [selected, setSelected] = useState<Repository | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected =
+    data.repositories.find((repo) => repo.id === selectedId) ?? null;
+  const setSelected = (repo: Repository | null) =>
+    setSelectedId(repo?.id ?? null);
   return (
     <>
       <div className="repository-grid">
@@ -69,6 +74,12 @@ export function RepositoryView({
             Select GitHub repositories in Connections and complete an import to
             see branches and commits.
           </p>
+          <Link
+            className="button button-primary"
+            href={data.mode === "demo" ? "/demo/connections" : "/connections"}
+          >
+            Choose repositories
+          </Link>
         </div>
       )}
       <Modal
@@ -248,6 +259,12 @@ export function SprintView({
             Select Jira projects and complete an import. Scrum boards and Jira
             Software access are required; Kanban boards do not have sprints.
           </p>
+          <Link
+            className="button button-primary"
+            href={data.mode === "demo" ? "/demo/connections" : "/connections"}
+          >
+            Choose Jira projects
+          </Link>
         </div>
       )}
       <p className="evidence-disclaimer">

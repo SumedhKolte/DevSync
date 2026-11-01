@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  githubCredentialStatus,
   githubPages,
   providerFetch,
   ProviderError,
@@ -28,6 +29,39 @@ describe("provider contract boundaries", () => {
       { id: 2 },
     ]);
     expect(fetch.mock.calls[1][0]).toContain("page=2");
+  });
+  it("stops paging when the caller no longer needs later pages", async () => {
+    const next = { link: '<https://api.github.com/test?page=2>; rel="next"' };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json([{ old: true }], { headers: next }));
+    vi.stubGlobal("fetch", fetch);
+    expect(
+      await githubPages<{ old: boolean }>(
+        "/test",
+        "token",
+        undefined,
+        (batch) => batch[batch.length - 1].old,
+      ),
+    ).toEqual([{ old: true }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("tells an unknown GitHub client ID from a wrong secret", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: "Not Found" }, { status: 404 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ error: "incorrect_client_credentials" }),
+      )
+      .mockResolvedValueOnce(Response.json({ error: "bad_verification_code" }))
+      .mockRejectedValueOnce(new TypeError("offline"));
+    vi.stubGlobal("fetch", fetch);
+    expect(await githubCredentialStatus()).toBe("unknown-client");
+    expect(await githubCredentialStatus()).toBe("wrong-secret");
+    expect(await githubCredentialStatus()).toBe("valid");
+    expect(await githubCredentialStatus()).toBe("unverified");
   });
   it("preserves rate-limit delays without exposing provider error bodies", async () => {
     vi.stubGlobal(
@@ -95,5 +129,44 @@ describe("provider contract boundaries", () => {
         ],
       }),
     ).toBe("Hello team\n\nNext step");
+  });
+  it("keeps Atlassian lists, breaks and mentions readable", () => {
+    const paragraph = (...content: unknown[]) => ({
+      type: "paragraph",
+      content,
+    });
+    const text = (value: string) => ({ type: "text", text: value });
+    expect(
+      adfText({
+        type: "doc",
+        content: [
+          paragraph(
+            text("Ask "),
+            { type: "mention", attrs: { text: "@Sam" } },
+            { type: "hardBreak" },
+            text("today"),
+          ),
+          {
+            type: "orderedList",
+            attrs: { order: 1 },
+            content: [
+              { type: "listItem", content: [paragraph(text("Reproduce"))] },
+              {
+                type: "listItem",
+                content: [
+                  paragraph(text("Fix")),
+                  {
+                    type: "bulletList",
+                    content: [
+                      { type: "listItem", content: [paragraph(text("API"))] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe("Ask @Sam\ntoday\n\n1. Reproduce\n2. Fix\n  - API");
   });
 });

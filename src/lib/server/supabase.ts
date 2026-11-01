@@ -1,6 +1,9 @@
+import { HttpError } from "./http";
+export { HttpError } from "./http";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import type { Database } from "../database.types";
 export function isConfigured() {
   return Boolean(
@@ -28,6 +31,13 @@ export async function userClient() {
     },
   );
 }
+/** The signed-in user, verified once per server render. */
+export const currentUser = cache(async () => {
+  const {
+    data: { user },
+  } = await (await userClient()).auth.getUser();
+  return user;
+});
 export function adminClient() {
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -48,14 +58,6 @@ export async function requireUser() {
   } = await db.auth.getUser();
   if (error || !user) throw new HttpError(401, "Sign in to continue.");
   return { db, user };
-}
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
 }
 export function appOrigin() {
   return new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000")

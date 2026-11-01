@@ -1,3 +1,4 @@
+import { jiraSites, type AtlassianResource } from "@/lib/oauth";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { decrypt } from "@/lib/server/crypto";
@@ -6,8 +7,12 @@ import {
   providerFetch,
   type ProviderTokens,
 } from "@/lib/server/providers";
+import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
 import {
-  apiError,
+  clearPendingTokens,
+  getPendingTokens,
+} from "@/lib/server/pending-tokens";
+import {
   appOrigin,
   assertOrigin,
   HttpError,
@@ -24,7 +29,7 @@ export async function POST(
     if (!["github", "jira"].includes(provider))
       throw new HttpError(404, "Unknown provider");
     const jar = await cookies();
-    const secret = jar.get(`devsync_pending_${provider}`)?.value;
+    const secret = getPendingTokens(jar, provider);
     if (!secret)
       throw new HttpError(
         400,
@@ -48,13 +53,11 @@ export async function POST(
       label = chosen.account.login;
       config = { installation_id: chosen.id };
     } else {
-      const { data: sites } = await providerFetch<
-        { id: string; name: string; url: string }[]
-      >(
+      const { data: sites } = await providerFetch<AtlassianResource[]>(
         "https://api.atlassian.com/oauth/token/accessible-resources",
         tokens.access_token,
       );
-      const chosen = sites.find((s) => s.id === account);
+      const chosen = jiraSites(sites).find((s) => s.id === account);
       if (!chosen)
         throw new HttpError(403, "Site not accessible to your account.");
       label = new URL(chosen.url).hostname;
@@ -68,9 +71,9 @@ export async function POST(
       p_ciphertext: secret,
     });
     if (error) throw error;
-    jar.delete(`devsync_pending_${provider}`);
+    clearPendingTokens(jar, provider);
     return NextResponse.redirect(`${appOrigin()}/connections`, 303);
   } catch (e) {
-    return apiError(e);
+    return connectionErrorRedirect(e);
   }
 }

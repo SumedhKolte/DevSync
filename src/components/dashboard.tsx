@@ -65,6 +65,10 @@ import type {
 } from "@/lib/types";
 import { Button, cn, Modal } from "./ui";
 import { RepositoryView, SprintView } from "./source-views";
+import { DeliveryOverview, SourceHealth } from "./delivery-overview";
+import { Onboarding } from "./onboarding";
+import { SyncHistory } from "./sync-history";
+import { connectionHealth } from "@/lib/delivery";
 
 export type View =
   | "overview"
@@ -202,12 +206,20 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
   const [assignee, setAssignee] = useState("all");
   const [sprint, setSprint] = useState("all");
   const [tab, setTab] = useState<"items" | "prs">("items");
-  const [selected, setSelected] = useState<WorkItem | null>(null);
-  const [selectedPr, setSelectedPr] = useState<PullRequest | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPrId, setSelectedPrId] = useState<string | null>(null);
+  const selected = data.items.find((item) => item.id === selectedId) ?? null;
+  const selectedPr =
+    data.pullRequests.find((pr) => pr.id === selectedPrId) ?? null;
+  const setSelected = (item: WorkItem | null) =>
+    setSelectedId(item?.id ?? null);
+  const setSelectedPr = (pr: PullRequest | null) =>
+    setSelectedPrId(pr?.id ?? null);
   const [command, setCommand] = useState(false);
   const [help, setHelp] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [notice, setNotice] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [saved, setSaved] = useState<string[]>([]);
   const [onlySaved, setOnlySaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -220,14 +232,17 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
     () => getEvidence(data, Date.parse(data.asOf)),
     [data],
   );
-  const [page, setPage] = useState(0);
+  const [requestedPage, setPage] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   useEffect(() => {
     try {
+      const stored: unknown = JSON.parse(
+        localStorage.getItem(`devsync:saved:${data.workspaceId}`) || "[]",
+      );
       setSaved(
-        JSON.parse(
-          localStorage.getItem(`devsync:saved:${data.workspaceId}`) || "[]",
-        ),
+        Array.isArray(stored)
+          ? stored.filter((id): id is string => typeof id === "string")
+          : [],
       );
     } catch {
       /* corrupt preferences are safely ignored */
@@ -274,10 +289,14 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
       ? saved.filter((x) => x !== id)
       : [...saved, id];
     setSaved(next);
-    localStorage.setItem(
-      `devsync:saved:${data.workspaceId}`,
-      JSON.stringify(next),
-    );
+    try {
+      localStorage.setItem(
+        `devsync:saved:${data.workspaceId}`,
+        JSON.stringify(next),
+      );
+    } catch {
+      setNotice("Saved for this visit. Browser storage is unavailable.");
+    }
   };
   const filtered = useMemo(
     () =>
@@ -430,6 +449,60 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
   });
   const showPrs =
     view === "pull-requests" || (view === "overview" && tab === "prs");
+  const page = Math.min(
+    requestedPage,
+    Math.max(0, Math.ceil((showPrs ? filteredPrs : filtered).length / 8) - 1),
+  );
+  const resetFilters = () => {
+    setQuery("");
+    setStatus("all");
+    setRepository("all");
+    setAssignee("all");
+    setSprint("all");
+    setOnlySaved(false);
+    setIssueType("all");
+    setPrState("all");
+    setReviewFilter("all");
+    setCheckFilter("all");
+    setPage(0);
+  };
+  const activeFilters = [
+    ...(query
+      ? [{ label: `Search: ${query}`, clear: () => setQuery("") }]
+      : []),
+    ...(!showPrs && status !== "all"
+      ? [{ label: status, clear: () => setStatus("all") }]
+      : []),
+    ...(repository !== "all"
+      ? [{ label: repository, clear: () => setRepository("all") }]
+      : []),
+    ...(assignee !== "all"
+      ? [{ label: assignee, clear: () => setAssignee("all") }]
+      : []),
+    ...(!showPrs && sprint !== "all"
+      ? [{ label: sprint, clear: () => setSprint("all") }]
+      : []),
+    ...(!showPrs && issueType !== "all"
+      ? [{ label: issueType, clear: () => setIssueType("all") }]
+      : []),
+    ...(!showPrs && onlySaved
+      ? [{ label: "Bookmarked", clear: () => setOnlySaved(false) }]
+      : []),
+    ...(showPrs && prState !== "all"
+      ? [{ label: prState, clear: () => setPrState("all") }]
+      : []),
+    ...(showPrs && reviewFilter !== "all"
+      ? [
+          {
+            label: reviewFilter.replaceAll("_", " "),
+            clear: () => setReviewFilter("all"),
+          },
+        ]
+      : []),
+    ...(showPrs && checkFilter !== "all"
+      ? [{ label: checkFilter, clear: () => setCheckFilter("all") }]
+      : []),
+  ];
   const refresh = async () => {
     if (data.mode === "demo") {
       startTransition(() => router.refresh());
@@ -438,16 +511,24 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
       );
       return;
     }
+    if (refreshing) return;
+    setRefreshing(true);
     try {
-      const result = await fetch("/api/sync", { method: "POST" });
-      const body = await result.json();
-      if (!result.ok) throw new Error(body.error);
+      const result = await fetch("/api/sync", {
+        method: "POST",
+        signal: AbortSignal.timeout(20000),
+      });
+      const body = await result.json().catch(() => ({}));
+      if (!result.ok)
+        throw new Error(body.error || "Could not queue refresh. Try again.");
       setNotice(
         "Refresh queued. The worker will import the latest authorized records.",
       );
       startTransition(() => router.refresh());
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Could not queue refresh.");
+    } finally {
+      setRefreshing(false);
     }
   };
   const tableSection = (
@@ -607,6 +688,24 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
           </button>
         )}
       </div>
+      {!!activeFilters.length && (
+        <div className="active-filters" aria-label="Active filters">
+          <span>Filtered by</span>
+          {activeFilters.map((filter, index) => (
+            <button
+              key={`${index}-${filter.label}`}
+              onClick={filter.clear}
+              aria-label={`Remove filter ${filter.label}`}
+            >
+              {filter.label}
+              <X size={12} />
+            </button>
+          ))}
+          <button className="clear-all" onClick={resetFilters}>
+            Clear all
+          </button>
+        </div>
+      )}
       <div className="table-scroll">
         {showPrs ? (
           <table className="data-table pr-table">
@@ -711,25 +810,17 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
           <Search size={24} />
           <h3>No matching {showPrs ? "pull requests" : "work items"}</h3>
           <p>
-            {data.items.length
+            {(showPrs ? data.pullRequests.length : data.items.length)
               ? "Try another search or clear your filters."
               : "Connect your accounts and select resources to start importing."}
           </p>
-          <Button
-            onClick={() => {
-              setQuery("");
-              setStatus("all");
-              setRepository("all");
-              setAssignee("all");
-              setOnlySaved(false);
-              setIssueType("all");
-              setPrState("all");
-              setReviewFilter("all");
-              setCheckFilter("all");
-            }}
-          >
-            Clear filters
-          </Button>
+          {(showPrs ? data.pullRequests.length : data.items.length) ? (
+            <Button onClick={resetFilters}>Clear filters</Button>
+          ) : (
+            <Link className="button button-primary" href={href("connections")}>
+              Connect your tools
+            </Link>
+          )}
         </div>
       )}
       <div className="table-footer">
@@ -752,7 +843,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
             className="icon-button"
             disabled={page === 0}
             aria-label="Previous page"
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => setPage(Math.max(0, page - 1))}
           >
             <ChevronLeft size={15} />
           </button>
@@ -762,7 +853,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
               (page + 1) * 8 >= (showPrs ? filteredPrs : filtered).length
             }
             aria-label="Next page"
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
           >
             <ChevronRight size={15} />
           </button>
@@ -801,6 +892,9 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
   );
   return (
     <div className="app-shell">
+      <a href="#workspace-content" className="skip-link">
+        Skip to workspace
+      </a>
       {mobileNav && (
         <button
           className="mobile-overlay"
@@ -816,7 +910,9 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
           devsync<span className="brand-dot">.</span>
         </Link>
         <button className="workspace-switch" onClick={() => setHelp(true)}>
-          <span className="workspace-icon">A</span>
+          <span className="workspace-icon">
+            {data.workspaceName.slice(0, 1).toUpperCase()}
+          </span>
           <span>
             <strong>{data.workspaceName}</strong>
             <small>
@@ -842,13 +938,23 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
                 setPage(0);
               }}
               className={cn("nav-item", view === id && "active")}
+              aria-current={view === id ? "page" : undefined}
             >
               <Icon size={17} />
               <span>{label}</span>
               {id === "evidence" && signals.length > 0 && (
                 <span className="nav-count">{signals.length}</span>
               )}
-              {id === "connections" && <span className="connection-dot" />}
+              {id === "connections" && data.connections.length > 0 && (
+                <span
+                  className={cn(
+                    "connection-dot",
+                    data.connections.some(
+                      (c) => connectionHealth(c, data.asOf) !== "healthy",
+                    ) && "warning",
+                  )}
+                />
+              )}
             </Link>
           ))}
         </nav>
@@ -870,7 +976,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
                 <span
                   className={cn(
                     "connection-dot",
-                    c.status !== "connected" && "warning",
+                    connectionHealth(c, data.asOf) !== "healthy" && "warning",
                   )}
                 />
               </Link>
@@ -986,7 +1092,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
             />
           </div>
         </header>
-        <main className="main-content">
+        <main className="main-content" id="workspace-content" tabIndex={-1}>
           <div className="page-heading">
             <div>
               <div className="eyebrow">
@@ -996,7 +1102,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
               </div>
               <h1>
                 {view === "overview"
-                  ? "A little clarity. A lot of progress."
+                  ? "Your delivery, connected."
                   : nav.find((n) => n.id === view)?.label ||
                     "Workspace settings"}
                 {view === "evidence" && (
@@ -1005,7 +1111,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
               </h1>
               <p>
                 {view === "overview"
-                  ? "Everything your team is building, connected in one place."
+                  ? "The plan, the code, and the context to move work forward."
                   : view === "work-items"
                     ? "From the plan to the pull request. Follow every piece of work."
                     : view === "pull-requests"
@@ -1046,41 +1152,35 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
                   <ChevronDown size={12} />
                 </label>
               )}
-              <Button onClick={refresh} disabled={pending}>
-                <RefreshCw size={14} className={pending ? "spin" : ""} />
-                {pending ? "Refreshing" : "Refresh"}
+              <Button
+                onClick={refresh}
+                disabled={pending || refreshing}
+                aria-label={
+                  pending || refreshing
+                    ? "Refreshing sources"
+                    : "Refresh sources"
+                }
+              >
+                <RefreshCw
+                  size={14}
+                  className={pending || refreshing ? "spin" : ""}
+                />
+                {pending || refreshing ? "Refreshing" : "Refresh"}
               </Button>
             </div>
           </div>
+          <SourceHealth data={data} />
           {view === "overview" && (
             <>
-              <div className="connection-banner">
-                <div className="connection-art">
-                  <span>
-                    <Github size={22} />
-                  </span>
-                  <span className="connector-line">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                  <span className="jira-art">◆</span>
-                </div>
-                <div>
-                  <strong>Two tools. One shared picture.</strong>
-                  <p>
-                    {data.mode === "demo"
-                      ? "Explore a sample team’s delivery workflow. Your real workspace is one connection away."
-                      : "Your selected repositories and projects, with the context that connects them."}
-                  </p>
-                </div>
-                <Link href={href("connections")}>
-                  {data.mode === "demo"
-                    ? "Connect your tools"
-                    : "Manage connections"}
-                  <ArrowRight size={14} />
-                </Link>
-              </div>
+              <Onboarding data={data} />
+              <DeliveryOverview
+                data={data}
+                onSignal={(signal) => {
+                  if (signal.item) setSelected(signal.item);
+                  else if (signal.pr) setSelectedPr(signal.pr);
+                }}
+                onPullRequest={setSelectedPr}
+              />
               <div className="stats-grid">
                 {[
                   {
@@ -1332,11 +1432,24 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
                 .map((a) => (
                   <ActivityRow key={a.id} activity={a} reference={data.asOf} />
                 ))}
-              {!data.activities.length && (
+              {!data.activities.some((a) =>
+                `${a.actor} ${a.text} ${a.target}`
+                  .toLowerCase()
+                  .includes(query.toLowerCase()),
+              ) && (
                 <div className="empty-state">
                   <ActivityIcon />
-                  <h3>Your story starts here</h3>
-                  <p>Connect your tools to see development activity.</p>
+                  <h3>
+                    {query ? "No matching activity" : "Your story starts here"}
+                  </h3>
+                  <p>
+                    {query
+                      ? "Try another name, issue key, or repository."
+                      : "Connect your tools to see development activity."}
+                  </p>
+                  {query && (
+                    <Button onClick={() => setQuery("")}>Clear search</Button>
+                  )}
                 </div>
               )}
             </section>
@@ -1842,6 +1955,7 @@ function Connections({
   );
   const [chosen, setChosen] = useState<string[]>([]);
   const configureScope = async (id: string) => {
+    if (busy) return;
     if (data.mode === "demo") {
       onNotice(
         "Sample connections are read-only. Sign in to select your own repositories and projects.",
@@ -1849,11 +1963,15 @@ function Connections({
       return;
     }
     setScope(id);
+    setResources([]);
+    setChosen([]);
     setBusy(true);
     try {
-      const r = await fetch(`/api/connections/${id}/resources`);
-      const b = await r.json();
-      if (!r.ok) throw new Error(b.error);
+      const r = await fetch(`/api/connections/${id}/resources`, {
+        signal: AbortSignal.timeout(20000),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error || "Could not load resources.");
       setResources(b.resources);
       setChosen(b.selected);
     } catch (e) {
@@ -1864,15 +1982,17 @@ function Connections({
     }
   };
   const saveScope = async () => {
+    if (busy || !scope) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/connections/${scope}/resources`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resources: chosen }),
+        signal: AbortSignal.timeout(20000),
       });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b.error);
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b.error || "Could not save selection.");
       setScope(null);
       onNotice("Selection saved. Initial import has been queued.");
       router.refresh();
@@ -1899,7 +2019,7 @@ function Connections({
                   <span
                     className={cn(
                       "status",
-                      connection.status === "connected"
+                      connectionHealth(connection, data.asOf) === "healthy"
                         ? "done"
                         : "in-progress",
                     )}
@@ -1907,11 +2027,15 @@ function Connections({
                     <span />
                     {data.mode === "demo"
                       ? "Sample connection"
-                      : connection.status === "connected"
-                        ? "Connected"
-                        : connection.status === "error"
-                          ? "Needs attention"
-                          : "Select resources"}
+                      : connectionHealth(connection, data.asOf) === "healthy"
+                        ? "Up to date"
+                        : connectionHealth(connection, data.asOf) === "stale"
+                          ? "Sync overdue"
+                          : connection.status === "error"
+                            ? "Needs attention"
+                            : connection.resources.length
+                              ? "Awaiting import"
+                              : "Select resources"}
                   </span>
                 )}
               </div>
@@ -1946,15 +2070,30 @@ function Connections({
                     )}
                   </div>
                   {connection.error && (
-                    <div className="connection-error">{connection.error}</div>
+                    // A connected source can carry advisory notes, such as
+                    // webhooks being unavailable on a local HTTP origin.
+                    <div
+                      className={
+                        connection.status === "error"
+                          ? "connection-error"
+                          : "connection-note"
+                      }
+                      role={connection.status === "error" ? "alert" : "note"}
+                    >
+                      {connection.error}
+                    </div>
                   )}
                   <div className="integration-actions">
-                    <Button onClick={() => configureScope(connection.id)}>
+                    <Button
+                      disabled={busy}
+                      onClick={() => configureScope(connection.id)}
+                    >
                       <SlidersHorizontal size={14} />
                       Manage scope
                     </Button>
                     <Button
                       variant="ghost"
+                      disabled={busy}
                       onClick={() =>
                         data.mode === "demo"
                           ? onNotice(
@@ -1975,7 +2114,7 @@ function Connections({
                   </div>
                   <a
                     className="button button-primary"
-                    href={`/api/connect/${provider}`}
+                    href={`/connect/${provider}/setup`}
                   >
                     <Plus size={15} />
                     Connect {provider === "github" ? "GitHub" : "Jira"}
@@ -1991,16 +2130,17 @@ function Connections({
           <div>
             <h3>Ready for your own workspace?</h3>
             <p>
-              Configure Supabase, sign in, and authorize your GitHub and Jira
-              accounts. Demo records stay separate.
+              Sign in and authorize your GitHub and Jira accounts. Demo records
+              stay separate.
             </p>
           </div>
-          <Link className="button button-primary" href="/login">
+          <Link className="button button-primary" href="/signup">
             Set up workspace
             <ArrowRight size={14} />
           </Link>
         </div>
       )}
+      <SyncHistory data={data} />
       <section className="panel sync-details">
         <div className="section-heading">
           <h2>How synchronization works</h2>
@@ -2045,6 +2185,7 @@ function Connections({
               try {
                 const r = await fetch(`/api/connections/${disconnect}`, {
                   method: "DELETE",
+                  signal: AbortSignal.timeout(20000),
                 });
                 if (!r.ok)
                   throw new Error("Disconnect failed. Please try again.");
@@ -2075,11 +2216,18 @@ function Connections({
           </div>
         ) : (
           <div className="scope-options">
+            {!resources.length && (
+              <p>
+                No accessible resources were found. Check your account
+                permissions and reconnect if needed.
+              </p>
+            )}
             {resources.map((r) => (
               <label key={r.id}>
                 <input
                   type="checkbox"
                   checked={chosen.includes(r.id)}
+                  disabled={!chosen.includes(r.id) && chosen.length >= 20}
                   onChange={() =>
                     setChosen((c) =>
                       c.includes(r.id)
@@ -2094,7 +2242,7 @@ function Connections({
           </div>
         )}
         <div className="dialog-footer">
-          <span>{chosen.length} selected</span>
+          <span>{chosen.length} / 20 selected</span>
           <Button variant="primary" disabled={busy} onClick={saveScope}>
             Save and import
           </Button>
@@ -2120,6 +2268,7 @@ function Settings({
       <form
         onSubmit={async (e) => {
           e.preventDefault();
+          if (busy) return;
           if (data.mode === "demo") {
             onNotice(
               "Demo workspace settings are read-only. Sign in to create your own workspace.",
@@ -2132,8 +2281,11 @@ function Settings({
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name }),
+              signal: AbortSignal.timeout(20000),
             });
-            if (!r.ok) throw new Error("Could not update workspace");
+            const result = await r.json().catch(() => ({}));
+            if (!r.ok)
+              throw new Error(result.error || "Could not update workspace");
             onNotice("Workspace updated.");
             router.refresh();
           } catch (e) {
@@ -2157,6 +2309,16 @@ function Settings({
           Save changes
         </Button>
       </form>
+      {data.mode === "live" && (
+        <>
+          <div className="settings-divider" />
+          <h2>Account</h2>
+          <p>Update the password you use to sign in to DevSync.</p>
+          <Link href="/password" className="button">
+            Change password <ShieldCheck size={14} />
+          </Link>
+        </>
+      )}
       <div className="settings-divider" />
       <h2>Privacy by default</h2>
       <p>

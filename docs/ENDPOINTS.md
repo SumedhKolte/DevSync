@@ -6,7 +6,8 @@ All application APIs are same-origin routes. User-facing mutations verify the Or
 
 | Route                               | Method    | Behavior                                                                                        |
 | ----------------------------------- | --------- | ----------------------------------------------------------------------------------------------- |
-| `/auth/login`                       | POST      | Send a Supabase email sign-in link; Supabase applies email rate limits.                         |
+| `/auth/login`                       | POST      | Sign in with email and password; all email-sending modes are rejected.                          |
+| `/auth/signup`                      | POST      | Create a password account and session after confirming no-email signup settings.                |
 | `/auth/callback`                    | GET       | Exchange a PKCE authorization code for a session.                                               |
 | `/auth/signout`                     | POST      | Clear the session.                                                                              |
 | `/api/connect/{github\|jira}`       | GET       | Begin provider authorization with a short-lived state cookie.                                   |
@@ -52,7 +53,7 @@ Array endpoints follow Link pagination. Explicitly bounded recent-commit preview
 | `/rest/agile/1.0/board/{id}/sprint` | Paginated active/future sprint metadata.                                     |
 | `/rest/api/3/webhook`               | Register, renew and replace app-owned dynamic webhooks.                      |
 
-OAuth scopes: `read:jira-work`, `read:jira-user`, `manage:jira-webhook`, `offline_access`, `read:board-scope:jira-software`, `read:sprint:jira-software`. Current endpoint-specific scope requirements and the Jira product edition must be validated for the deployment. Missing Jira Software/board access produces an empty sprint view; expired authorization does not get suppressed. No issue-write scope is requested.
+OAuth scopes: granular only (`jiraScopes` in `src/lib/oauth.ts`): project, issue-type, user, group, avatar, field, issue-details, issue-meta, changelog, webhook, JQL, board-scope and sprint read scopes, `write:webhook:jira`, `delete:webhook:jira`, and `offline_access`. They were taken from the `x-atlassian-oauth2-scopes` entries of Atlassian's OpenAPI specs for each endpoint called. Webhooks are renewed with `PUT /rest/api/3/webhook/refresh`. Missing Jira Software/board access produces an empty sprint view; expired authorization does not get suppressed. No issue-write scope is requested.
 
 ## Official references
 
@@ -63,3 +64,9 @@ OAuth scopes: `read:jira-work`, `read:jira-user`, `manage:jira-webhook`, `offlin
 - [Jira Software REST](https://developer.atlassian.com/cloud/jira/software/rest/)
 - [Jira 3LO](https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/)
 - [Jira webhooks](https://developer.atlassian.com/cloud/jira/platform/webhooks/)
+
+## Request validation updates
+
+JSON mutations for sign-in, workspace naming, and resource selection require `application/json` and accept at most 64 KiB. Invalid JSON returns 400, unsupported media returns 415, and oversized bodies return 413. Webhook bodies are limited to 2 MiB while streaming before parsing; malformed JSON returns 400. The existing signature/authentication checks remain in place.
+
+Sync history is loaded server-side with the user's Supabase session and the existing owner-only `sync_runs` RLS policy. No service key or privileged browser endpoint is introduced for this view. This UI displays import attempts after the worker starts them, not queue depth or worker heartbeat health.

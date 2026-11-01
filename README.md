@@ -17,7 +17,7 @@ Open [the app](http://127.0.0.1:3000) or [the isolated demo](http://127.0.0.1:30
 npm run worker
 ```
 
-The worker is required for imports. A queued refresh is not an immediate provider import. Keep one worker running in a deployed environment; queue leases protect concurrent consumers. App pages poll every 30 seconds while visible to show completed imports.
+The worker is required for imports. Its startup command loads `.env` and then `.env.local`, with local values taking precedence. A queued refresh is not an immediate provider import. Keep one worker running in a deployed environment; queue leases protect concurrent consumers. App pages poll every 30 seconds while visible to show completed imports.
 
 ## Supabase project
 
@@ -42,7 +42,7 @@ npm run db:types
 
 Set the Supabase URL, publishable key, server-side privileged key and token encryption key. Generate a token encryption key using `openssl rand -base64 32`. Enter generated secrets into your local ignored environment file or deployment secret store.
 
-Supabase Auth is configured for email sign-in links. Local callback URLs include both `localhost:3000/auth/callback` and `127.0.0.1:3000/auth/callback`. Configure your actual production origin and callback URL before deployment. Supabase's default email service may restrict delivery to authorized addresses; configure production SMTP for general user onboarding. The app has no bundled user account or shared default password.
+DevSync supports password sign-in at `/login` and account creation at `/signup`, with no login or confirmation emails. Supabase Email must be enabled, signups allowed, and Confirm email disabled (verified on the hosted devsync project). Forgotten-password guidance is at `/forgot-password`; authenticated users can change passwords in Settings. See `docs/AUTH_SETUP.md` and `docs/SITE_AUDIT.md`. The app has no bundled user account or shared default password.
 
 ## Connect GitHub
 
@@ -64,7 +64,7 @@ This version uses GitHub App **user access tokens** for reads. They enforce the 
 
 Create an Atlassian OAuth 2.0 (3LO) app with callback `APP_ORIGIN/api/connect/jira/callback`. Set `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET`.
 
-Requested scopes are `read:jira-work`, `read:jira-user`, `manage:jira-webhook`, `offline_access`, `read:board-scope:jira-software`, and `read:sprint:jira-software`. The app reads work-item business data; webhook-management scope is used only for event registration/renewal. Validate scope availability in your developer console and remove Jira Software scopes if your edition does not support those features.
+Requested scopes are **granular only**, taken from Atlassian's OpenAPI spec for each endpoint DevSync calls (see `jiraScopes` in `src/lib/oauth.ts`, also listed on `/connect/jira/setup`), plus `offline_access`. Add them under the app's Permissions → Jira API → Edit Scopes → Granular scopes. Classic scopes such as `read:jira-work` are not requested; the board API accepts only granular scopes. If Atlassian says "This app requires access to a Jira site", the signed-in Atlassian account has no Jira Cloud site. The app reads work-item business data; webhook scopes are used only for event registration and renewal.
 
 Connect Jira, choose a site, and select projects. The worker discovers custom sprint field IDs, searches using `/rest/api/3/search/jql`, and follows its page tokens. It does not hardcode custom field IDs.
 
@@ -72,11 +72,15 @@ On a public HTTPS origin, the worker registers issue webhooks, renews them befor
 
 ## Working features
 
+The overview now includes a delivery brief, prioritized signals, approved-and-passing PRs, open-PR link coverage, and a Markdown export. The brief uses the current authorized snapshot and labels demo exports. Approval plus passing checks does not establish mergeability.
+
+Connections includes the latest 30 sync attempts with source filters, durations, record counts, failures, and retry status. Freshness warnings distinguish unconfigured, pending, failed, and stale sources. Imported-data totals may be incomplete when a source is unavailable.
+
 - Responsive app shell, overview metrics, delivery pulse, sprint summary, global command search, work-item and PR tables, activity, connection management and settings.
-- Search, status/type/repository/assignee filters, PR state/review/check filters, sorting, pagination and local bookmarks.
+- Search, removable active-filter chips, clear-all controls, status/type/repository/assignee filters, PR state/review/check filters, sorting, pagination and local bookmarks. Pagination stays in range when refreshed data shrinks. Browser storage failures do not break bookmarks for the current visit.
 - Linked work-item and PR details with statuses, check outcomes, author/assignee, branch and change counts.
 - Delivery Evidence for failing checks, merged work still in progress, quiet PRs awaiting review, and missing/unresolved Jira references.
-- Supabase email sessions, encrypted OAuth credentials, explicit account and resource selection, protected server routes and owner-only row policies.
+- Supabase password-authenticated sessions, encrypted OAuth credentials, explicit account and resource selection, protected server routes and owner-only row policies.
 - Transactional import publication, stable provider identities, exact Jira-key links with field provenance, queue leases, bounded retries, delivery deduplication, reconciling deletion/revoked access and disconnect cleanup.
 - GitHub PRs, reviews, related commits/files, head-commit workflow runs, check runs and combined commit statuses. Jira work items, configured fields, active/future sprints, and recent status-change history.
 
@@ -106,7 +110,11 @@ flowchart LR
 
 Imported records are private to their authorizing user. This release does not implement cross-user source sharing. Workspace membership is never treated as permission to view another person's private repositories or restricted Jira issues.
 
-The worker re-fetches canonical source records using the authorizing user's token, then publishes a complete selected-scope snapshot transactionally. Failed imports mark the connection unhealthy and hide its imported data through RLS. Source data also becomes unreadable after 30 minutes without successful revalidation. This bounds cached access; provider revocation is not instantaneous. Open work-item/PR dialogs may retain already loaded data until navigation, as with any downloaded view.
+The worker re-fetches canonical source records using the authorizing user's token, then publishes a complete selected-scope snapshot transactionally. Failed imports mark the connection unhealthy and hide its imported data through RLS. Source data also becomes unreadable after 30 minutes without successful revalidation. This bounds cached access; provider revocation is not instantaneous. Open work-item, PR, and repository dialogs resolve their selection against each refreshed snapshot; removed records close automatically. Already downloaded information cannot be recalled from a browser, and a hidden/offline tab may retain its last view until refresh.
+
+The worker validates connection and queue payloads, caps provider import requests at 12 minutes inside the 15-minute lease, and respects bounded provider retry delays. Failure updates are scoped to the import generation and only affect connections without a newer successful sync. Queue acknowledgement/delay errors are checked rather than reported as settled. Source metadata and sync-history reads run alongside the other workspace queries; issue–PR links are assembled through indexed maps.
+
+JSON mutation bodies are limited to 64 KiB and webhook bodies to 2 MiB while streaming, including requests without Content-Length. Malformed JSON returns a client error. Source links must be HTTPS and cannot embed credentials.
 
 The app never transitions Jira issues, comments on source records, or merges PRs. PR state, review outcome, checks and Jira status are distinct. Aggregated checks represent the latest available check runs/statuses, not a certification of repository branch-protection requirements. Missing or skipped-only checks remain unknown.
 
@@ -130,13 +138,13 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The final verification record is in `docs/VERIFICATION.md`. Browser automation was not completed in this session because the browser approval gate declined local-preview access. Do not treat the saved E2E suite as passed until it has run. Real GitHub/Jira imports also require provider app configuration and authorization; they have not been live-validated yet.
+The final verification record is in `docs/VERIFICATION.md`, and the latest audit is in `docs/SITE_AUDIT.md`. The current suite has 76 passing unit tests across 11 files plus 3 passing Playwright scenarios (desktop and mobile). Real GitHub/Jira imports require provider app configuration and authorization; they have not been live-validated yet.
 
 ## Current boundaries
 
 - GitHub.com and Jira Cloud only; no Enterprise Server or Data Center connector.
 - One GitHub installation and one Jira site per private workspace. Team sharing is intentionally not enabled.
-- Maximum 20 selected resources and 1,000 work items/PRs per provider import. Imports exceeding the cap fail visibly rather than silently truncating. GitHub retains open PRs plus closed/merged PRs updated in the last 90 days. UI activity shows the latest 100 retained events.
+- Maximum 20 selected resources and 1,000 work items/PRs per provider import. Imports exceeding the cap fail visibly (before per-PR detail requests) rather than silently truncating. GitHub retains open PRs plus closed/merged PRs updated in the last 90 days; closed-PR paging stops at the 90-day cutoff. GitHub lists at most 250 commits and 3,000 files per PR, so very large PRs import with the retrievable subset instead of failing the whole sync. UI activity shows the latest 100 retained events.
 - Repository views include branches and the latest 30 default-branch commits, including unmatched commits. Sprint views include accessible active/future sprints and progress across imported issues. Jira status history is bounded to the latest 20 changelog entries per imported issue. Historical sprint browsing, Actions job details and review-comment threads are follow-up work.
 - Snapshots are complete imports, not cursor-resumable incremental jobs. This is correct for a bounded first release but will need checkpointing and incremental indexes for large organizations. A 15-minute lease bounds a single job; an import that outlives its lease cannot publish.
 - Signal thresholds are explicit defaults: quiet awaiting-review PR after 48 hours and a 7-day evidence freshness cutoff. Editable thresholds and release/deployment evidence are follow-up work.

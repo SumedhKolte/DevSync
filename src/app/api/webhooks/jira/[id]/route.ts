@@ -1,3 +1,4 @@
+import { readBody, HttpError } from "@/lib/server/http";
 import { jwtVerify } from "jose";
 import { createHash } from "node:crypto";
 import { adminClient } from "@/lib/server/supabase";
@@ -19,10 +20,15 @@ export async function POST(
   }
   try {
     const { id } = await params;
-    const body = await request.text();
-    if (body.length > 2 * 1024 * 1024)
-      return new Response(null, { status: 413 });
-    const event = JSON.parse(body);
+    const body = await readBody(request, 2 * 1024 * 1024);
+    let event;
+    try {
+      event = JSON.parse(body);
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+    if (!event || typeof event !== "object")
+      return new Response(null, { status: 400 });
     const db = adminClient();
     const { data: connection } = await db
       .from("connections")
@@ -42,7 +48,9 @@ export async function POST(
     });
     if (error) throw error;
     return new Response(null, { status: 202 });
-  } catch {
-    return new Response(null, { status: 503 });
+  } catch (error) {
+    return new Response(null, {
+      status: error instanceof HttpError ? error.status : 503,
+    });
   }
 }

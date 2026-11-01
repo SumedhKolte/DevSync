@@ -439,6 +439,35 @@ export function getDemoData(): WorkspaceData {
         at: ago(30 + i * 6),
       })),
     ],
+    syncRuns: [
+      {
+        id: "run-gh",
+        connectionId: "demo-gh",
+        status: "complete",
+        startedAt: ago(0.025),
+        finishedAt: ago(0.02),
+        recordsCount: 9,
+        error: null,
+      },
+      {
+        id: "run-jira",
+        connectionId: "demo-jira",
+        status: "complete",
+        startedAt: ago(0.04),
+        finishedAt: ago(0.03),
+        recordsCount: 12,
+        error: null,
+      },
+      {
+        id: "run-retry",
+        connectionId: "demo-gh",
+        status: "retrying",
+        startedAt: ago(0.2),
+        finishedAt: ago(0.195),
+        recordsCount: 0,
+        error: "Provider rate limit reached. Sync will retry.",
+      },
+    ],
     connections: [
       {
         id: "demo-gh",

@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build --webpack",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
     "test": "vitest run",
-    "worker": "tsx --env-file=.env.local worker/index.ts",
+    "worker": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local worker/index.ts",
     "db:types": "supabase gen types --linked --lang typescript --schema public > src/lib/database.types.ts",
     "test:db": "supabase db query --linked --file tests/database-isolation.sql",
     "test:e2e": "playwright test"

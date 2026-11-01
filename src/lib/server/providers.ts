@@ -1,3 +1,5 @@
+import { retryDelay } from "./retry";
+import { providerSignal } from "./provider-budget";
 export class ProviderError extends Error {
   constructor(
     public status: number,
@@ -27,19 +29,11 @@ export async function providerFetch<T>(
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
-    signal: AbortSignal.timeout(20000),
+    signal: providerSignal(),
     cache: "no-store",
   });
   if (!response.ok) {
-    const retryAfter = response.headers.get("retry-after");
-    const reset = Number(response.headers.get("x-ratelimit-reset"));
-    const delay = retryAfter
-      ? Number(retryAfter) ||
-        Math.max(1, (Date.parse(retryAfter) - Date.now()) / 1000)
-      : reset
-        ? Math.max(1, reset - Date.now() / 1000)
-        : 60;
-    throw new ProviderError(response.status, Math.min(86400, Math.ceil(delay)));
+    throw new ProviderError(response.status, retryDelay(response.headers));
   }
   return {
     data: (response.status === 204 ? undefined : await response.json()) as T,
@@ -53,10 +47,12 @@ export const githubFetch = <T>(path: string, token: string) =>
       Accept: "application/vnd.github+json",
     },
   });
+/** `stop` ends paging early once a batch shows later pages are not needed. */
 export async function githubPages<T>(
   path: string,
   token: string,
   property?: string,
+  stop?: (batch: T[]) => boolean,
 ): Promise<T[]> {
   const all: T[] = [];
   let page = 1;
@@ -70,7 +66,7 @@ export async function githubPages<T>(
       : (data as T[]);
     if (!Array.isArray(batch)) throw new Error("Unexpected provider response");
     all.push(...batch);
-    if (!headers.get("link")?.includes('rel="next"')) break;
+    if (!headers.get("link")?.includes('rel="next"') || stop?.(batch)) break;
     if (++page > 100)
       throw new Error(
         "Import exceeded the safety limit. Narrow your repository scope.",
@@ -118,7 +114,7 @@ export async function refreshTokens(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(20000),
+      signal: providerSignal(),
       body: JSON.stringify({
         grant_type: "refresh_token",
         client_id:
@@ -133,7 +129,8 @@ export async function refreshTokens(
       }),
     },
   );
-  if (!response.ok) throw new ProviderError(response.status);
+  if (!response.ok)
+    throw new ProviderError(response.status, retryDelay(response.headers));
   const value = await response.json();
   if (!value.access_token) throw new ProviderError(401);
   return {
@@ -175,4 +172,40 @@ export async function listResources(
       throw new Error("Project listing exceeded the safety limit");
   }
   return result;
+}
+
+export type GithubCredentialStatus =
+  "valid" | "unknown-client" | "wrong-secret" | "unverified";
+/**
+ * Exchange a deliberately invalid code. GitHub answers 404 for an unknown
+ * client ID, incorrect_client_credentials for a wrong secret, and
+ * bad_verification_code when both are right. No token is ever issued.
+ */
+export async function githubCredentialStatus(): Promise<GithubCredentialStatus> {
+  try {
+    const response = await fetch(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: process.env.GITHUB_CLIENT_ID?.trim(),
+          client_secret: process.env.GITHUB_CLIENT_SECRET?.trim(),
+          code: "devsync-credential-check",
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (response.status === 404) return "unknown-client";
+    const body = await response.json().catch(() => ({}));
+    if (body.error === "incorrect_client_credentials") return "wrong-secret";
+    if (body.error === "bad_verification_code") return "valid";
+  } catch {
+    /* Network failures leave the check unverified rather than blocking. */
+  }
+  return "unverified";
 }

@@ -14,21 +14,9 @@ export function getEvidence(
     if (now - Date.parse(item.updatedAt) > staleAfter) continue;
     for (const pr of item.pullRequests) {
       if (now - Date.parse(pr.updatedAt) > staleAfter) continue;
-      if (pr.checks === "failing" && pr.state !== "closed")
-        signals.push({
-          id: `failed-${pr.id}`,
-          rule: "failed-checks",
-          title: "Checks need attention",
-          description: `${item.key} · PR #${pr.number} has failing checks on its latest commit.`,
-          severity: "high",
-          item,
-          pr,
-          observedAt: pr.updatedAt,
-          sourceUrl: pr.url,
-        });
       if (pr.state === "merged" && item.status === "In progress")
         signals.push({
-          id: `drift-${pr.id}`,
+          id: `drift-${item.id}-${pr.id}`,
           rule: "status-drift",
           title: "Merged, still in progress",
           description: `${item.key} · Code is merged. Check whether the Jira status needs updating.`,
@@ -42,7 +30,24 @@ export function getEvidence(
   }
   for (const pr of data.pullRequests) {
     const age = now - Date.parse(pr.updatedAt);
-    if (age > staleAfter || pr.state !== "open") continue;
+    if (!Number.isFinite(age) || age > staleAfter || pr.state !== "open")
+      continue;
+    if (pr.checks === "failing") {
+      const item = data.items.find((i) =>
+        i.pullRequests.some((p) => p.id === pr.id),
+      );
+      signals.push({
+        id: `failed-${pr.id}`,
+        rule: "failed-checks",
+        title: "Checks need attention",
+        description: `${item?.key || pr.repository} · PR #${pr.number} has failing checks on its latest commit.`,
+        severity: "high",
+        item,
+        pr,
+        observedAt: pr.updatedAt,
+        sourceUrl: pr.url,
+      });
+    }
     if (!linked.has(pr.id)) {
       const hasCandidates = extractIssueKeys(pr.title, pr.branch).length > 0;
       signals.push({
