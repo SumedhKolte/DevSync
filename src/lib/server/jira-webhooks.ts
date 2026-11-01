@@ -28,7 +28,7 @@ export async function ensureJiraWebhook(c: ConnectionRow, token: string) {
     return { config: c.config };
   if (c.config.webhook_ids?.length) {
     const { data } = await providerFetch<{ expirationDate: number }>(
-      base,
+      `${base}/refresh`,
       token,
       {
         method: "PUT",

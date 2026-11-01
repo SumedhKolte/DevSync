@@ -1,11 +1,37 @@
 export type IntegrationProvider = "github" | "jira";
+// Granular scopes, taken from Atlassian's OpenAPI spec for each Jira endpoint
+// DevSync calls. Classic scopes (read:jira-work …) are not mixed in: Atlassian
+// denied consent for this app when classic and granular scopes were combined.
 export const jiraScopes = [
-  "read:jira-work",
-  "read:jira-user",
-  "manage:jira-webhook",
-  "offline_access",
+  // Project search (scope selection and access checks)
+  "read:project:jira",
+  "read:project.property:jira",
+  "read:project-category:jira",
+  "read:project-version:jira",
+  "read:project.component:jira",
+  "read:issue-type:jira",
+  "read:issue-type-hierarchy:jira",
+  "read:application-role:jira",
+  "read:user:jira",
+  "read:group:jira",
+  "read:avatar:jira",
+  // Fields, issue search and status history
+  "read:field:jira",
+  "read:field-configuration:jira",
+  "read:field.default-value:jira",
+  "read:field.option:jira",
+  "read:issue-details:jira",
+  "read:issue-meta:jira",
+  "read:issue.changelog:jira",
+  // Dynamic webhooks
+  "read:webhook:jira",
+  "write:webhook:jira",
+  "delete:webhook:jira",
+  "read:jql:jira",
+  // Boards and sprints
   "read:board-scope:jira-software",
   "read:sprint:jira-software",
+  "offline_access",
 ];
 export function githubAppSlug(value: string) {
   const slug = value.trim();
@@ -45,7 +71,10 @@ export interface AtlassianResource {
 export function jiraSites(resources: AtlassianResource[]) {
   return resources.filter(
     (site): site is AtlassianResource & { url: string } =>
-      !!site.scopes?.includes("read:jira-work") &&
-      !!site.url?.startsWith("https://"),
+      // Granted scopes name the site's issue access: granular or classic.
+      !!site.scopes?.some(
+        (scope) =>
+          scope === "read:issue-details:jira" || scope === "read:jira-work",
+      ) && !!site.url?.startsWith("https://"),
   );
 }

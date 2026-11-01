@@ -53,7 +53,7 @@ Array endpoints follow Link pagination. Explicitly bounded recent-commit preview
 | `/rest/agile/1.0/board/{id}/sprint` | Paginated active/future sprint metadata.                                     |
 | `/rest/api/3/webhook`               | Register, renew and replace app-owned dynamic webhooks.                      |
 
-OAuth scopes: `read:jira-work`, `read:jira-user`, `manage:jira-webhook`, `offline_access`, `read:board-scope:jira-software`, `read:sprint:jira-software`. Current endpoint-specific scope requirements and the Jira product edition must be validated for the deployment. Missing Jira Software/board access produces an empty sprint view; expired authorization does not get suppressed. No issue-write scope is requested.
+OAuth scopes: granular only (`jiraScopes` in `src/lib/oauth.ts`): project, issue-type, user, group, avatar, field, issue-details, issue-meta, changelog, webhook, JQL, board-scope and sprint read scopes, `write:webhook:jira`, `delete:webhook:jira`, and `offline_access`. They were taken from the `x-atlassian-oauth2-scopes` entries of Atlassian's OpenAPI specs for each endpoint called. Webhooks are renewed with `PUT /rest/api/3/webhook/refresh`. Missing Jira Software/board access produces an empty sprint view; expired authorization does not get suppressed. No issue-write scope is requested.
 
 ## Official references
 

@@ -64,7 +64,7 @@ This version uses GitHub App **user access tokens** for reads. They enforce the 
 
 Create an Atlassian OAuth 2.0 (3LO) app with callback `APP_ORIGIN/api/connect/jira/callback`. Set `JIRA_CLIENT_ID` and `JIRA_CLIENT_SECRET`.
 
-Requested scopes are `read:jira-work`, `read:jira-user`, `manage:jira-webhook`, `offline_access`, `read:board-scope:jira-software`, and `read:sprint:jira-software`. The app reads work-item business data; webhook-management scope is used only for event registration/renewal. Validate scope availability in your developer console and remove Jira Software scopes if your edition does not support those features.
+Requested scopes are **granular only**, taken from Atlassian's OpenAPI spec for each endpoint DevSync calls (see `jiraScopes` in `src/lib/oauth.ts`, also listed on `/connect/jira/setup`), plus `offline_access`. Add them under the app's Permissions → Jira API → Edit Scopes → Granular scopes. Do not add classic scopes such as `read:jira-work` to the request: Atlassian denied consent ("This app requires access to a Jira site") when classic and granular scopes were combined. The app reads work-item business data; webhook scopes are used only for event registration and renewal.
 
 Connect Jira, choose a site, and select projects. The worker discovers custom sprint field IDs, searches using `/rest/api/3/search/jql`, and follows its page tokens. It does not hardcode custom field IDs.
 

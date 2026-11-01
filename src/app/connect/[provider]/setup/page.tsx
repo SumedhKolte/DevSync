@@ -150,8 +150,22 @@ export default async function Setup({
               allow sharing.
             </p>
             <h2>App permissions</h2>
-            <p>Add these scopes to the OAuth app before authorization:</p>
-            <code className="setup-callback">{jiraScopes.join(" ")}</code>
+            <p>
+              DevSync requests granular scopes only. In the developer console,
+              open your app’s <strong>Permissions</strong>, configure{" "}
+              <strong>Jira API</strong>, choose <strong>Edit Scopes</strong> on
+              the <strong>Granular scopes</strong> tab, and select every scope
+              below. Classic scopes are not needed.
+            </p>
+            <ul className="setup-scopes">
+              {jiraScopes
+                .filter((scope) => scope !== "offline_access")
+                .map((scope) => (
+                  <li key={scope}>
+                    <code>{scope}</code>
+                  </li>
+                ))}
+            </ul>
             <a
               className="demo-login"
               href="https://developer.atlassian.com/console/myapps/"
