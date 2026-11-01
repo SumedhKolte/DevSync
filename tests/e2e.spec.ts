@@ -20,7 +20,7 @@ test("searches, traverses connected records, and saves a work item", async ({
     .getByRole("button", { name: /devsync\/api · #246/ })
     .click();
   await expect(page.getByRole("dialog")).toContainText("Pull request #246");
-  await expect(page.getByRole("dialog")).toContainText("failing");
+  await expect(page.getByRole("dialog")).toContainText("Failing");
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByLabel("Search work items and pull requests").fill("");
   await page
@@ -67,7 +67,7 @@ test("mobile navigation works without document overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/demo");
   await expect(
-    page.getByRole("heading", { name: "A little clarity. A lot of progress." }),
+    page.getByRole("heading", { name: "Your delivery, connected." }),
   ).toBeVisible();
   expect(
     await page.evaluate(

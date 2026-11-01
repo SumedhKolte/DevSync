@@ -1,15 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import type { Database } from "../src/lib/database.types";
+import { retryDecision } from "../src/lib/server/retry";
+import { withProviderBudget } from "../src/lib/server/provider-budget";
+import { z } from "zod";
+import { toJson, connectionSchema } from "../src/lib/validation";
 import { decrypt, encrypt } from "../src/lib/server/crypto";
 import { importGithub, importJira } from "../src/lib/server/importers";
 import {
   ProviderError,
   refreshTokens,
-  type ConnectionRow,
   type ProviderTokens,
 } from "../src/lib/server/providers";
 import { ensureJiraWebhook } from "../src/lib/server/jira-webhooks";
-const db = createClient(
+const db = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false, autoRefreshToken: false } },
@@ -39,10 +43,10 @@ async function job(message: {
 }) {
   const id = message.message.connection_id;
   const lease = randomUUID();
-  const { data: c } = await checked(
+  const { data: initial } = await checked(
     db.from("connections").select("*").eq("id", id).maybeSingle(),
   );
-  if (!c) {
+  if (!initial) {
     await checked(db.rpc("worker_ack", { p_msg_id: message.msg_id }));
     return;
   }
@@ -56,7 +60,19 @@ async function job(message: {
     return;
   }
   let runId: string | undefined;
+  let c = initial;
+  const startedAt = new Date().toISOString();
   try {
+    // Scope may have changed while waiting for the lease. Load it after acquiring.
+    const { data: current } = await checked(
+      db.from("connections").select("*").eq("id", id).maybeSingle(),
+    );
+    if (!current) {
+      await checked(db.rpc("worker_ack", { p_msg_id: message.msg_id }));
+      return;
+    }
+    c = current;
+    const connection = connectionSchema.parse(c);
     const { data: run } = await checked(
       db
         .from("sync_runs")
@@ -74,29 +90,31 @@ async function job(message: {
     );
     if (!secret) throw new ProviderError(401);
     const original = decrypt<ProviderTokens>(secret);
-    const tokens = await refreshTokens(c.provider, original);
+    const tokens = await refreshTokens(connection.provider, original);
     if (tokens !== original)
       await checked(
         db.rpc("worker_secret", { p_id: id, p_ciphertext: encrypt(tokens) }),
       );
-    const snapshot =
+    // Finish provider requests before the 15-minute queue/connection lease expires.
+    const snapshot = await withProviderBudget(12 * 60_000, async () =>
       c.provider === "github"
-        ? await importGithub(c as ConnectionRow, tokens.access_token)
-        : await importJira(c as ConnectionRow, tokens.access_token);
+        ? importGithub(connection, tokens.access_token)
+        : importJira(connection, tokens.access_token),
+    );
     await checked(
       db.rpc("publish_snapshot", {
         p_id: id,
         p_lease: lease,
         p_scope_version: c.scope_version,
-        p_rows: snapshot.rows,
-        p_events: snapshot.events,
-        p_resources: snapshot.resources,
+        p_rows: toJson(snapshot.rows),
+        p_events: toJson(snapshot.events),
+        p_resources: toJson(snapshot.resources),
       }),
     );
     if (c.provider === "jira") {
       try {
         const webhook = await ensureJiraWebhook(
-          c as ConnectionRow,
+          connection,
           tokens.access_token,
         );
         await checked(
@@ -116,7 +134,8 @@ async function job(message: {
             last_error:
               "Jira webhook registration or renewal failed. Scheduled reconciliation remains available.",
           })
-          .eq("id", id);
+          .eq("id", id)
+          .eq("scope_version", c.scope_version);
       }
     }
     await checked(
@@ -132,9 +151,11 @@ async function job(message: {
     await checked(db.rpc("worker_ack", { p_msg_id: message.msg_id }));
     log("sync.complete", { connectionId: id, records: snapshot.rows.length });
   } catch (error) {
-    const permanent =
-      error instanceof ProviderError && [400, 401, 404].includes(error.status);
-    const exhausted = message.read_ct >= 5 || permanent;
+    const { exhausted, seconds } = retryDecision(
+      message.read_ct,
+      error instanceof ProviderError ? error.status : undefined,
+      error instanceof ProviderError ? error.retryAfter : 0,
+    );
     const safeMessage =
       error instanceof ProviderError
         ? error.message
@@ -144,32 +165,37 @@ async function job(message: {
             )
           ? error.message
           : "Import failed. Check credentials, permissions, schema, and provider availability.";
-    await db
-      .from("connections")
-      .update({ status: "error", last_error: safeMessage })
-      .eq("id", id);
+    // An obsolete job must not hide a newer successful snapshot or changed scope.
+    await checked(
+      db
+        .from("connections")
+        .update({ status: "error", last_error: safeMessage })
+        .eq("id", id)
+        .eq("scope_version", c.scope_version)
+        .or(`last_sync_at.is.null,last_sync_at.lte."${startedAt}"`),
+    );
     if (runId)
-      await db
-        .from("sync_runs")
-        .update({
-          status: exhausted ? "failed" : "retrying",
-          error: safeMessage,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", runId);
+      await checked(
+        db
+          .from("sync_runs")
+          .update({
+            status: exhausted ? "failed" : "retrying",
+            error: safeMessage,
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", runId),
+      );
     if (exhausted)
-      await db.rpc("worker_ack", { p_msg_id: message.msg_id, p_archive: true });
+      await checked(
+        db.rpc("worker_ack", { p_msg_id: message.msg_id, p_archive: true }),
+      );
     else
-      await db.rpc("worker_delay", {
-        p_msg_id: message.msg_id,
-        p_seconds: Math.max(
-          error instanceof ProviderError ? error.retryAfter : 0,
-          Math.min(
-            3600,
-            15 * 2 ** message.read_ct + Math.floor(Math.random() * 15),
-          ),
-        ),
-      });
+      await checked(
+        db.rpc("worker_delay", {
+          p_msg_id: message.msg_id,
+          p_seconds: seconds,
+        }),
+      );
     log("sync.failed", {
       connectionId: id,
       retry: !exhausted,
@@ -184,11 +210,15 @@ async function main() {
   while (!stopping) {
     try {
       const { data } = await checked(db.rpc("worker_read"));
-      const messages = data as {
-        msg_id: number;
-        read_ct: number;
-        message: { connection_id: string };
-      }[];
+      const messages = z
+        .array(
+          z.object({
+            msg_id: z.number().int().positive(),
+            read_ct: z.number().int().nonnegative(),
+            message: z.object({ connection_id: z.uuid() }),
+          }),
+        )
+        .parse(data);
       if (!messages.length)
         await new Promise((resolve) => setTimeout(resolve, 3000));
       else for (const message of messages) await job(message);

@@ -29,6 +29,22 @@ describe("provider contract boundaries", () => {
     ]);
     expect(fetch.mock.calls[1][0]).toContain("page=2");
   });
+  it("stops paging when the caller no longer needs later pages", async () => {
+    const next = { link: '<https://api.github.com/test?page=2>; rel="next"' };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json([{ old: true }], { headers: next }));
+    vi.stubGlobal("fetch", fetch);
+    expect(
+      await githubPages<{ old: boolean }>(
+        "/test",
+        "token",
+        undefined,
+        (batch) => batch[batch.length - 1].old,
+      ),
+    ).toEqual([{ old: true }]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("preserves rate-limit delays without exposing provider error bodies", async () => {
     vi.stubGlobal(
       "fetch",

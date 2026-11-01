@@ -1,5 +1,9 @@
 import { z } from "zod";
 import type { Json } from "./database.types";
+export const sourceUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && !url.username && !url.password;
+}, "Source links must use HTTPS without embedded credentials.");
 export const resourceSchema = z.object({ id: z.string(), name: z.string() });
 export const pullRequestSchema = z.object({
   id: z.string(),
@@ -13,7 +17,7 @@ export const pullRequestSchema = z.object({
   review: z.enum(["approved", "changes_requested", "pending"]),
   checks: z.enum(["passing", "failing", "pending", "unknown"]),
   updatedAt: z.string(),
-  url: z.url(),
+  url: sourceUrlSchema,
   additions: z.number(),
   deletions: z.number(),
   body: z.string().optional(),
@@ -23,7 +27,7 @@ export const pullRequestSchema = z.object({
         sha: z.string(),
         message: z.string(),
         author: z.string(),
-        url: z.url(),
+        url: sourceUrlSchema,
         at: z.string(),
       }),
     )
@@ -39,7 +43,9 @@ export const pullRequestSchema = z.object({
     .optional(),
   reviewers: z.array(z.string()).optional(),
   workflows: z
-    .array(z.object({ name: z.string(), status: z.string(), url: z.url() }))
+    .array(
+      z.object({ name: z.string(), status: z.string(), url: sourceUrlSchema }),
+    )
     .optional(),
 });
 export const workItemSchema = z.object({
@@ -56,7 +62,7 @@ export const workItemSchema = z.object({
   description: z.string(),
   pullRequests: z.array(pullRequestSchema).default([]),
   updatedAt: z.string(),
-  url: z.url(),
+  url: sourceUrlSchema,
   sprint: z.string().nullable(),
 });
 export const activitySchema = z.object({
@@ -66,7 +72,7 @@ export const activitySchema = z.object({
   text: z.string(),
   target: z.string(),
   at: z.string(),
-  url: z.url().optional(),
+  url: sourceUrlSchema.optional(),
 });
 export const connectionSchema = z.object({
   id: z.uuid(),
@@ -78,7 +84,7 @@ export const connectionSchema = z.object({
   resources: z.array(resourceSchema),
   config: z.object({
     cloud_id: z.string().optional(),
-    site_url: z.url().optional(),
+    site_url: sourceUrlSchema.optional(),
     installation_id: z.number().optional(),
     webhook_ids: z.array(z.number()).optional(),
     webhook_expires_at: z.number().optional(),
@@ -94,7 +100,7 @@ export const repositorySchema = z.object({
   description: z.string(),
   defaultBranch: z.string(),
   private: z.boolean(),
-  url: z.url(),
+  url: sourceUrlSchema,
   branches: z.array(
     z.object({ name: z.string(), sha: z.string(), protected: z.boolean() }),
   ),
@@ -104,7 +110,7 @@ export const repositorySchema = z.object({
       message: z.string(),
       author: z.string(),
       at: z.string(),
-      url: z.url(),
+      url: sourceUrlSchema,
     }),
   ),
 });

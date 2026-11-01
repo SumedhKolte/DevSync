@@ -1,3 +1,4 @@
+import { readJson } from "@/lib/server/http";
 import { z } from "zod";
 import { apiError, assertOrigin, HttpError } from "@/lib/server/supabase";
 import { ownedConnection, withConnectionToken } from "@/lib/server/connection";
@@ -28,7 +29,7 @@ export async function PUT(
     assertOrigin(request);
     const parsed = z
       .object({ resources: z.array(z.string().min(1).max(100)).max(20) })
-      .safeParse(await request.json());
+      .safeParse(await readJson(request));
     if (!parsed.success)
       throw new HttpError(400, "Choose up to 20 valid resources.");
     const { id } = await params;

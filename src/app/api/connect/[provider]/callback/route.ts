@@ -1,12 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { encrypt } from "@/lib/server/crypto";
-import {
-  apiError,
-  appOrigin,
-  HttpError,
-  requireUser,
-} from "@/lib/server/supabase";
+import { appOrigin, HttpError, requireUser } from "@/lib/server/supabase";
+import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ provider: string }> },
@@ -19,7 +15,9 @@ export async function GET(
     const url = new URL(request.url);
     const jar = await cookies();
     if (provider === "github" && url.searchParams.has("installation_id"))
-      return NextResponse.redirect(`${appOrigin()}/connect/github`);
+      return NextResponse.redirect(
+        `${appOrigin()}${jar.get("devsync_pending_github") ? "/connect/github" : "/api/connect/github"}`,
+      );
     const expected = jar.get(`devsync_oauth_${provider}`)?.value;
     const state = url.searchParams.get("state");
     jar.delete(`devsync_oauth_${provider}`);
@@ -81,6 +79,6 @@ export async function GET(
     );
     return NextResponse.redirect(`${appOrigin()}/connect/${provider}`);
   } catch (e) {
-    return apiError(e);
+    return connectionErrorRedirect(e);
   }
 }

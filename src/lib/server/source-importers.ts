@@ -5,6 +5,7 @@ import {
   listResources,
   providerFetch,
   type ConnectionRow,
+  type Resource,
   ProviderError,
 } from "./providers";
 export type SourceMetadata =
@@ -13,8 +14,9 @@ export type SourceMetadata =
 export async function githubMetadata(
   c: ConnectionRow,
   token: string,
+  available?: Resource[],
 ): Promise<SourceMetadata[]> {
-  const allowed = await listResources(c, token);
+  const allowed = available ?? (await listResources(c, token));
   const result: SourceMetadata[] = [];
   for (const selected of c.resources) {
     const resource = allowed.find((r) => r.id === selected.id);

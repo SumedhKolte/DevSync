@@ -35,3 +35,31 @@ describe("delivery evidence", () => {
     expect(JSON.stringify(data)).toBe(before);
   });
 });
+
+describe("independent GitHub evidence", () => {
+  it("surfaces failing checks even when the PR has no imported Jira item", () => {
+    const data = getDemoData();
+    data.items = [];
+    expect(getEvidence(data).some((s) => s.rule === "failed-checks")).toBe(
+      true,
+    );
+  });
+  it("does not present checks on merged PRs as open blockers", () => {
+    const data = getDemoData();
+    data.pullRequests.forEach((pr) => {
+      pr.state = "merged";
+      pr.checks = "failing";
+    });
+    expect(getEvidence(data).some((s) => s.rule === "failed-checks")).toBe(
+      false,
+    );
+  });
+  it("retains drift evidence for every linked work item", () => {
+    const data = getDemoData();
+    const drift = getEvidence(data).find((s) => s.rule === "status-drift")!;
+    data.items.push({ ...drift.item!, id: "another", key: "ENG-999" });
+    expect(
+      getEvidence(data).filter((s) => s.rule === "status-drift"),
+    ).toHaveLength(2);
+  });
+});

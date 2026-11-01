@@ -63,6 +63,7 @@ export interface Connection {
   error?: string;
 }
 export interface WorkspaceData {
+  syncRuns: SyncRun[];
   repositories: Repository[];
   sprints: Sprint[];
   asOf: string;
@@ -76,6 +77,15 @@ export interface WorkspaceData {
   connections: Connection[];
   lastSync: string | null;
   sprintName: string;
+}
+export interface SyncRun {
+  id: string;
+  connectionId: string;
+  status: "queued" | "running" | "complete" | "retrying" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  recordsCount: number;
+  error: string | null;
 }
 export interface Repository {
   id: string;

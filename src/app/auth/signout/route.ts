@@ -9,7 +9,8 @@ export async function POST(request: Request) {
   try {
     assertOrigin(request);
     const db = await userClient();
-    await db.auth.signOut();
+    const { error } = await db.auth.signOut();
+    if (error) throw error;
     return NextResponse.redirect(`${appOrigin()}/login`, 303);
   } catch (e) {
     return apiError(e);

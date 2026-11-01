@@ -1,3 +1,5 @@
+import { retryDelay } from "./retry";
+import { providerSignal } from "./provider-budget";
 export class ProviderError extends Error {
   constructor(
     public status: number,
@@ -27,19 +29,11 @@ export async function providerFetch<T>(
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
-    signal: AbortSignal.timeout(20000),
+    signal: providerSignal(),
     cache: "no-store",
   });
   if (!response.ok) {
-    const retryAfter = response.headers.get("retry-after");
-    const reset = Number(response.headers.get("x-ratelimit-reset"));
-    const delay = retryAfter
-      ? Number(retryAfter) ||
-        Math.max(1, (Date.parse(retryAfter) - Date.now()) / 1000)
-      : reset
-        ? Math.max(1, reset - Date.now() / 1000)
-        : 60;
-    throw new ProviderError(response.status, Math.min(86400, Math.ceil(delay)));
+    throw new ProviderError(response.status, retryDelay(response.headers));
   }
   return {
     data: (response.status === 204 ? undefined : await response.json()) as T,
@@ -53,10 +47,12 @@ export const githubFetch = <T>(path: string, token: string) =>
       Accept: "application/vnd.github+json",
     },
   });
+/** `stop` ends paging early once a batch shows later pages are not needed. */
 export async function githubPages<T>(
   path: string,
   token: string,
   property?: string,
+  stop?: (batch: T[]) => boolean,
 ): Promise<T[]> {
   const all: T[] = [];
   let page = 1;
@@ -70,7 +66,7 @@ export async function githubPages<T>(
       : (data as T[]);
     if (!Array.isArray(batch)) throw new Error("Unexpected provider response");
     all.push(...batch);
-    if (!headers.get("link")?.includes('rel="next"')) break;
+    if (!headers.get("link")?.includes('rel="next"') || stop?.(batch)) break;
     if (++page > 100)
       throw new Error(
         "Import exceeded the safety limit. Narrow your repository scope.",
@@ -118,7 +114,7 @@ export async function refreshTokens(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(20000),
+      signal: providerSignal(),
       body: JSON.stringify({
         grant_type: "refresh_token",
         client_id:
@@ -133,7 +129,8 @@ export async function refreshTokens(
       }),
     },
   );
-  if (!response.ok) throw new ProviderError(response.status);
+  if (!response.ok)
+    throw new ProviderError(response.status, retryDelay(response.headers));
   const value = await response.json();
   if (!value.access_token) throw new ProviderError(401);
   return {

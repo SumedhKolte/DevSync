@@ -1,3 +1,4 @@
+import { readBody, HttpError } from "@/lib/server/http";
 import { adminClient } from "@/lib/server/supabase";
 import { verifyGithubSignature } from "@/lib/server/crypto";
 export async function POST(request: Request) {
@@ -7,8 +8,14 @@ export async function POST(request: Request) {
       { error: "Webhook is not configured." },
       { status: 503 },
     );
-  const body = await request.text();
-  if (body.length > 2 * 1024 * 1024) return new Response(null, { status: 413 });
+  let body: string;
+  try {
+    body = await readBody(request, 2 * 1024 * 1024);
+  } catch (error) {
+    return new Response(null, {
+      status: error instanceof HttpError ? error.status : 400,
+    });
+  }
   if (
     !verifyGithubSignature(
       body,
@@ -18,7 +25,14 @@ export async function POST(request: Request) {
   )
     return new Response(null, { status: 401 });
   try {
-    const event = JSON.parse(body);
+    let event;
+    try {
+      event = JSON.parse(body);
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+    if (!event || typeof event !== "object")
+      return new Response(null, { status: 400 });
     const delivery = request.headers.get("x-github-delivery");
     if (!delivery || !event.installation?.id)
       return new Response(null, { status: 400 });

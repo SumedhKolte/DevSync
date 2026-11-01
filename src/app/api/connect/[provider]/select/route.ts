@@ -1,3 +1,4 @@
+import { jiraSites, type AtlassianResource } from "@/lib/oauth";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { decrypt } from "@/lib/server/crypto";
@@ -6,8 +7,8 @@ import {
   providerFetch,
   type ProviderTokens,
 } from "@/lib/server/providers";
+import { connectionErrorRedirect } from "@/lib/server/connection-redirect";
 import {
-  apiError,
   appOrigin,
   assertOrigin,
   HttpError,
@@ -48,13 +49,11 @@ export async function POST(
       label = chosen.account.login;
       config = { installation_id: chosen.id };
     } else {
-      const { data: sites } = await providerFetch<
-        { id: string; name: string; url: string }[]
-      >(
+      const { data: sites } = await providerFetch<AtlassianResource[]>(
         "https://api.atlassian.com/oauth/token/accessible-resources",
         tokens.access_token,
       );
-      const chosen = sites.find((s) => s.id === account);
+      const chosen = jiraSites(sites).find((s) => s.id === account);
       if (!chosen)
         throw new HttpError(403, "Site not accessible to your account.");
       label = new URL(chosen.url).hostname;
@@ -71,6 +70,6 @@ export async function POST(
     jar.delete(`devsync_pending_${provider}`);
     return NextResponse.redirect(`${appOrigin()}/connections`, 303);
   } catch (e) {
-    return apiError(e);
+    return connectionErrorRedirect(e);
   }
 }

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { isConfigured, userClient } from "./supabase";
+import { currentUser, isConfigured, userClient } from "./supabase";
 import type { Connection, WorkspaceData } from "../types";
 import {
   activitySchema,
@@ -11,12 +11,11 @@ import {
   sprintSchema,
 } from "../validation";
 import { z } from "zod";
+import { attachPullRequests } from "../delivery";
 export async function getWorkspaceData(): Promise<WorkspaceData> {
   if (!isConfigured()) throw new Error("Supabase is not configured");
   const db = await userClient();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await currentUser();
   if (!user) redirect("/login");
   const { data: workspaceId, error: bootstrapError } =
     await db.rpc("ensure_workspace");
@@ -46,28 +45,37 @@ export async function getWorkspaceData(): Promise<WorkspaceData> {
       .eq("workspace_id", workspaceId)
       .order("occurred_at", { ascending: false })
       .limit(100),
+    db
+      .from("source_resources")
+      .select("kind,payload")
+      .eq("workspace_id", workspaceId),
+    db
+      .from("sync_runs")
+      .select(
+        "id,connection_id,status,started_at,finished_at,records_count,error",
+      )
+      .eq("workspace_id", workspaceId)
+      .order("started_at", { ascending: false })
+      .limit(30),
   ]);
   if (results.some((r) => r.error))
     throw new Error("Workspace data could not be loaded");
-  const [workspace, connections, items, prs, links, events] = results;
-  const { data: sourceMetadata, error: metadataError } = await db
-    .from("source_resources")
-    .select("kind,payload")
-    .eq("workspace_id", workspaceId);
-  if (metadataError) throw new Error("Source metadata could not be loaded");
+  const [workspace, connections, items, prs, links, events, metadata, runs] =
+    results;
+  const sourceMetadata = metadata.data;
   const pullRequests = (prs.data || []).map((row) => ({
     ...pullRequestSchema.parse(row.payload),
     id: row.id,
   }));
-  const workItems = (items.data || []).map((row) => ({
-    ...workItemSchema.parse(row.payload),
-    id: row.id,
-    pullRequests: pullRequests.filter((pr) =>
-      (links.data || []).some(
-        (l) => l.work_item_id === row.id && l.pull_request_id === pr.id,
-      ),
-    ),
-  }));
+  const workItems = attachPullRequests(
+    (items.data || []).map((row) => ({
+      ...workItemSchema.parse(row.payload),
+      id: row.id,
+      pullRequests: [],
+    })),
+    pullRequests,
+    links.data || [],
+  );
   const activeConnections: Connection[] = (connections.data || []).map((c) => ({
     id: c.id,
     provider: connectionSchema.shape.provider.parse(c.provider),
@@ -89,6 +97,17 @@ export async function getWorkspaceData(): Promise<WorkspaceData> {
     .map((r) => sprintSchema.parse(r.payload));
   return {
     mode: "live",
+    syncRuns: (runs.data || []).map((run) => ({
+      id: run.id,
+      connectionId: run.connection_id,
+      status: z
+        .enum(["queued", "running", "complete", "retrying", "failed"])
+        .parse(run.status),
+      startedAt: run.started_at,
+      finishedAt: run.finished_at,
+      recordsCount: run.records_count,
+      error: run.error,
+    })),
     repositories: (sourceMetadata || [])
       .filter((r) => r.kind === "repository")
       .map((r) => repositorySchema.parse(r.payload)),

@@ -1,32 +1,39 @@
-import { z } from "zod";
+import { readJson } from "@/lib/server/http";
+import { authInput, authFailure } from "@/lib/auth";
 import {
   apiError,
-  appOrigin,
   assertOrigin,
   HttpError,
   userClient,
 } from "@/lib/server/supabase";
+
 export async function POST(request: Request) {
   try {
     assertOrigin(request);
-    const parsed = z
-      .object({ email: z.email().max(254) })
-      .safeParse(await request.json());
+    const parsed = authInput.safeParse(await readJson(request));
     if (!parsed.success)
-      throw new HttpError(400, "Enter a valid email address.");
+      throw new HttpError(400, "Sign in with a valid email and password.");
     const db = await userClient();
-    const { error } = await db.auth.signInWithOtp({
+    const { data, error } = await db.auth.signInWithPassword({
       email: parsed.data.email,
-      options: { emailRedirectTo: `${appOrigin()}/auth/callback` },
+      password: parsed.data.password,
     });
-    if (error)
+    if (error) {
+      const failure = authFailure(error);
+      return Response.json(failure, {
+        status: failure.status,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (!data.session)
       throw new HttpError(
-        429,
-        "Unable to send a link right now. Check the email address and try again shortly.",
+        503,
+        "Unable to start your session. Please try again.",
       );
-    return Response.json({
-      message: "Check your email for a secure sign-in link.",
-    });
+    return Response.json(
+      { signedIn: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (e) {
     return apiError(e);
   }
