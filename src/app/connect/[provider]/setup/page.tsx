@@ -60,6 +60,13 @@ export default async function Setup({
         <code className="setup-callback">
           {appOrigin()}/api/connect/{provider}/callback
         </code>
+        <p>
+          {label} compares this address character for character.{" "}
+          <strong>localhost</strong> and <strong>127.0.0.1</strong> count as
+          different addresses, so a callback registered for one is rejected for
+          the other. If {label} reports a redirect or callback URL error, add
+          this exact URL to the app’s callback list.
+        </p>
         {github ? (
           <>
             <h2>App and installation</h2>
