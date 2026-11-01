@@ -223,13 +223,36 @@ interface JiraIssue {
     [key: string]: unknown;
   };
 }
+type AdfNode = {
+  type?: string;
+  text?: string;
+  attrs?: { text?: string; shortName?: string; url?: string; order?: number };
+  content?: unknown[];
+};
+const inlineAdf = new Set(["paragraph", "heading", "codeBlock"]);
+/** Plain text from Atlassian Document Format, keeping paragraphs, lists and breaks readable. */
 export function adfText(node: unknown): string {
   if (!node || typeof node !== "object") return "";
-  const n = node as { text?: string; type?: string; content?: unknown[] };
-  return (
-    n.text ||
-    (n.content || []).map(adfText).join(n.type === "doc" ? "\n\n" : "")
-  );
+  const n = node as AdfNode;
+  if (n.text) return n.text;
+  if (n.type === "hardBreak") return "\n";
+  if (n.type === "mention" || n.type === "emoji")
+    return n.attrs?.text || n.attrs?.shortName || "";
+  if (n.type === "inlineCard") return n.attrs?.url || "";
+  const children = (n.content || []).map(adfText);
+  if (n.type === "bulletList" || n.type === "orderedList") {
+    const start = n.attrs?.order ?? 1;
+    return children
+      .map((item, index) =>
+        `${n.type === "orderedList" ? `${start + index}.` : "-"} ${item}`.replace(
+          /\n/g,
+          "\n  ",
+        ),
+      )
+      .join("\n");
+  }
+  if (n.type === "doc") return children.filter(Boolean).join("\n\n");
+  return children.join(!n.type || inlineAdf.has(n.type) ? "" : "\n");
 }
 export async function importJira(c: ConnectionRow, token: string) {
   const base = `https://api.atlassian.com/ex/jira/${c.config.cloud_id}`;
@@ -332,6 +355,6 @@ export async function importJira(c: ConnectionRow, token: string) {
   return {
     rows,
     events: await jiraStatusHistory(c, token, rows),
-    resources: await jiraSprintMetadata(c, token),
+    resources: await jiraSprintMetadata(c, token, available),
   };
 }

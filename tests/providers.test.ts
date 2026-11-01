@@ -112,4 +112,43 @@ describe("provider contract boundaries", () => {
       }),
     ).toBe("Hello team\n\nNext step");
   });
+  it("keeps Atlassian lists, breaks and mentions readable", () => {
+    const paragraph = (...content: unknown[]) => ({
+      type: "paragraph",
+      content,
+    });
+    const text = (value: string) => ({ type: "text", text: value });
+    expect(
+      adfText({
+        type: "doc",
+        content: [
+          paragraph(
+            text("Ask "),
+            { type: "mention", attrs: { text: "@Sam" } },
+            { type: "hardBreak" },
+            text("today"),
+          ),
+          {
+            type: "orderedList",
+            attrs: { order: 1 },
+            content: [
+              { type: "listItem", content: [paragraph(text("Reproduce"))] },
+              {
+                type: "listItem",
+                content: [
+                  paragraph(text("Fix")),
+                  {
+                    type: "bulletList",
+                    content: [
+                      { type: "listItem", content: [paragraph(text("API"))] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe("Ask @Sam\ntoday\n\n1. Reproduce\n2. Fix\n  - API");
+  });
 });

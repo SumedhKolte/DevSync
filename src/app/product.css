@@ -231,6 +231,15 @@ h1 {
 .search-input {
   border-radius: 7px;
 }
+/* Wrap filters onto a new row instead of squashing their labels. */
+.filter-bar > :not(.search-input) {
+  flex-shrink: 0;
+}
+@media (min-width: 761px) {
+  .filter-bar > .search-input {
+    min-width: 210px;
+  }
+}
 .section-heading h2 {
   font-size: 14px;
   color: #263e4c;

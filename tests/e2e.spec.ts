@@ -41,13 +41,16 @@ test("filters pull requests and opens evidence with provenance", async ({
   page,
 }) => {
   await page.goto("/demo/pull-requests");
-  await page.getByLabel("Filter by check result").selectOption("failing");
+  // Reselect until applied: a change made before hydration is not replayed.
+  await expect(async () => {
+    await page.getByLabel("Filter by check result").selectOption("failing");
+    await expect(
+      page.getByRole("button", { name: /ENG-142 Add workspace/ }),
+    ).toHaveCount(0, { timeout: 1000 });
+  }).toPass();
   await expect(
     page.getByRole("button", { name: /ENG-138 Fix OAuth/ }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /ENG-142 Add workspace/ }),
-  ).toHaveCount(0);
   await page.goto("/demo/evidence");
   await page
     .getByRole("button", { name: "Needs attention 1", exact: true })

@@ -74,9 +74,10 @@ export async function githubMetadata(
 export async function jiraSprintMetadata(
   c: ConnectionRow,
   token: string,
+  available?: Resource[],
 ): Promise<SourceMetadata[]> {
   try {
-    return await accessibleJiraSprints(c, token);
+    return await accessibleJiraSprints(c, token, available);
   } catch (error) {
     if (error instanceof ProviderError && [403, 404].includes(error.status))
       return [];
@@ -86,11 +87,12 @@ export async function jiraSprintMetadata(
 async function accessibleJiraSprints(
   c: ConnectionRow,
   token: string,
+  available?: Resource[],
 ): Promise<SourceMetadata[]> {
   const base = `https://api.atlassian.com/ex/jira/${c.config.cloud_id}/rest/agile/1.0`;
   const result = new Map<string, SourceMetadata>();
   const seenBoards = new Set<number>();
-  const allowed = await listResources(c, token);
+  const allowed = available ?? (await listResources(c, token));
   const visible = new Set(allowed.map((r) => r.id));
   for (const project of c.resources.filter((r) => visible.has(r.id))) {
     let start = 0;
