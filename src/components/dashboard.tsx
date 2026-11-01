@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { routeFromPath, viewTitles } from "@/lib/views";
 import {
   flexRender,
   getCoreRowModel,
@@ -196,10 +197,21 @@ function ActivityRow({
     </div>
   );
 }
-export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
+export function Dashboard({
+  data,
+  view: routeView,
+}: {
+  data: WorkspaceData;
+  view: View;
+}) {
   const router = useRouter();
+  const pathname = usePathname();
   const prefix = data.mode === "demo" ? "/demo" : "";
-  const href = (id: View) => `${prefix}${id === "overview" ? "/" : `/${id}`}`;
+  const href = (id: View) =>
+    id === "overview" ? prefix || "/" : `${prefix}/${id}`;
+  // Every view renders from the same snapshot, so switching views updates the
+  // URL in place instead of re-rendering the whole page on the server.
+  const view = (pathname && routeFromPath(pathname)?.view) || routeView;
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [repository, setRepository] = useState("all");
@@ -233,6 +245,38 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
     [data],
   );
   const [requestedPage, setPage] = useState(0);
+  const go = (id: View) => {
+    setMobileNav(false);
+    setQuery("");
+    setPage(0);
+    if (id === view) return;
+    window.history.pushState(null, "", href(id));
+    window.scrollTo({ top: 0 });
+  };
+  // Catch plain clicks on links to other views anywhere in the dashboard.
+  // Modified clicks (new tab, etc.) keep the browser's normal behaviour.
+  const interceptViewLinks = (event: React.MouseEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    const anchor = (event.target as HTMLElement).closest("a");
+    if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
+    const url = new URL(anchor.href, window.location.href);
+    if (url.origin !== window.location.origin || url.search || url.hash) return;
+    const route = routeFromPath(url.pathname);
+    if (!route || route.demo !== (data.mode === "demo")) return;
+    event.preventDefault();
+    go(route.view);
+  };
+  useEffect(() => {
+    document.title = `${viewTitles[view]}${data.mode === "demo" ? " · Demo" : ""} · DevSync`;
+  }, [view, data.mode]);
   const [sorting, setSorting] = useState<SortingState>([]);
   useEffect(() => {
     try {
@@ -539,7 +583,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
             className={!showPrs ? "active" : ""}
             onClick={() => {
               setTab("items");
-              if (view === "pull-requests") router.push(href("work-items"));
+              if (view === "pull-requests") go("work-items");
             }}
           >
             Work items <span>{data.items.length}</span>
@@ -548,7 +592,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
             className={showPrs ? "active" : ""}
             onClick={() => {
               setTab("prs");
-              if (view === "work-items") router.push(href("pull-requests"));
+              if (view === "work-items") go("pull-requests");
             }}
           >
             Pull requests <span>{data.pullRequests.length}</span>
@@ -891,7 +935,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
     </button>
   );
   return (
-    <div className="app-shell">
+    <div className="app-shell" onClickCapture={interceptViewLinks}>
       <a href="#workspace-content" className="skip-link">
         Skip to workspace
       </a>
@@ -926,87 +970,73 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
           <span>Quick search</span>
           <kbd>⌘ K</kbd>
         </button>
-        <span className="nav-label">WORKSPACE</span>
-        <nav aria-label="Main navigation">
-          {nav.map(({ id, label, icon: Icon }) => (
-            <Link
-              key={id}
-              href={href(id)}
-              onClick={() => {
-                setMobileNav(false);
-                setQuery("");
-                setPage(0);
-              }}
-              className={cn("nav-item", view === id && "active")}
-              aria-current={view === id ? "page" : undefined}
-            >
-              <Icon size={17} />
-              <span>{label}</span>
-              {id === "evidence" && signals.length > 0 && (
-                <span className="nav-count">{signals.length}</span>
-              )}
-              {id === "connections" && data.connections.length > 0 && (
-                <span
-                  className={cn(
-                    "connection-dot",
-                    data.connections.some(
-                      (c) => connectionHealth(c, data.asOf) !== "healthy",
-                    ) && "warning",
-                  )}
-                />
-              )}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-projects">
-          <span className="nav-label">CONNECTED SOURCES</span>
-          {data.connections.length ? (
-            data.connections.map((c) => (
+        {/* Only this middle section scrolls, so search and the account
+            controls stay in view on short screens. */}
+        <div className="sidebar-scroll">
+          <span className="nav-label">WORKSPACE</span>
+          <nav aria-label="Main navigation">
+            {nav.map(({ id, label, icon: Icon }) => (
               <Link
-                href={href("connections")}
-                className="source-item"
-                key={c.id}
+                key={id}
+                href={href(id)}
+                className={cn("nav-item", view === id && "active")}
+                aria-current={view === id ? "page" : undefined}
               >
-                {c.provider === "github" ? (
-                  <Github size={15} />
-                ) : (
-                  <span className="jira-symbol">◆</span>
+                <Icon size={17} />
+                <span>{label}</span>
+                {id === "evidence" && signals.length > 0 && (
+                  <span className="nav-count">{signals.length}</span>
                 )}
-                <span>{c.provider === "github" ? "GitHub" : "Jira Cloud"}</span>
-                <span
-                  className={cn(
-                    "connection-dot",
-                    connectionHealth(c, data.asOf) !== "healthy" && "warning",
-                  )}
-                />
+                {id === "connections" && data.connections.length > 0 && (
+                  <span
+                    className={cn(
+                      "connection-dot",
+                      data.connections.some(
+                        (c) => connectionHealth(c, data.asOf) !== "healthy",
+                      ) && "warning",
+                    )}
+                  />
+                )}
               </Link>
-            ))
-          ) : (
-            <Link href={href("connections")} className="source-item">
-              <Plus size={15} />
-              Add a connection
-            </Link>
-          )}
+            ))}
+          </nav>
+          <div className="sidebar-projects">
+            <span className="nav-label">CONNECTED SOURCES</span>
+            {data.connections.length ? (
+              data.connections.map((c) => (
+                <Link
+                  href={href("connections")}
+                  className="source-item"
+                  key={c.id}
+                >
+                  {c.provider === "github" ? (
+                    <Github size={15} />
+                  ) : (
+                    <span className="jira-symbol">◆</span>
+                  )}
+                  <span>
+                    {c.provider === "github" ? "GitHub" : "Jira Cloud"}
+                  </span>
+                  <span
+                    className={cn(
+                      "connection-dot",
+                      connectionHealth(c, data.asOf) !== "healthy" && "warning",
+                    )}
+                  />
+                </Link>
+              ))
+            ) : (
+              <Link href={href("connections")} className="source-item">
+                <Plus size={15} />
+                Add a connection
+              </Link>
+            )}
+          </div>
         </div>
         <div className="sidebar-bottom">
-          <div className="sidebar-note">
-            <span className="note-icon">
-              <ShieldCheck size={17} />
-            </span>
-            <strong>Clarity, without the tab hopping.</strong>
-            <p>
-              Your code and your plans.
-              <br />
-              Finally on the same page.
-            </p>
-            <button onClick={() => setHelp(true)}>
-              Explore DevSync <ArrowUpRight size={12} />
-            </button>
-          </div>
           <button className="nav-item" onClick={() => setHelp(true)}>
             <CircleHelp size={17} />
             <span>Help & documentation</span>
-            <ArrowUpRight size={12} />
           </button>
           <Link
             href={href("settings")}
@@ -1076,7 +1106,7 @@ export function Dashboard({ data, view }: { data: WorkspaceData; view: View }) {
             <button
               className="icon-button notification-button"
               aria-label={`View ${signals.length} delivery signals`}
-              onClick={() => router.push(href("evidence"))}
+              onClick={() => go("evidence")}
             >
               <Bell size={17} />
               {signals.length > 0 && <i />}

@@ -29,3 +29,7 @@ export const viewTitles: Record<View, string> = {
   repositories: "Repositories",
   sprints: "Sprints",
 };
+/** The dashboard route for a browser path, or null if it is not one. */
+export function routeFromPath(pathname: string) {
+  return resolveView(pathname.split("/").filter(Boolean));
+}

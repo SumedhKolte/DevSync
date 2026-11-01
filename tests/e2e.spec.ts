@@ -87,3 +87,23 @@ test("mobile navigation works without document overflow", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText("Sample connection")).toHaveCount(2);
 });
+test("switches views in place and keeps history working", async ({ page }) => {
+  await page.goto("/demo");
+  await page.evaluate(() => {
+    (window as unknown as { marker: string }).marker = "kept";
+  });
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  await nav.getByRole("link", { name: "Pull requests" }).click();
+  await expect(page).toHaveURL(/\/demo\/pull-requests$/);
+  await expect(page.locator("h1").first()).toHaveText("Pull requests");
+  await expect(page).toHaveTitle("Pull requests · Demo · DevSync");
+  await nav.getByRole("link", { name: "Overview" }).click();
+  await expect(page).toHaveURL(/\/demo$/);
+  await page.goBack();
+  await expect(page.locator("h1").first()).toHaveText("Pull requests");
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { marker?: string }).marker,
+    ),
+  ).toBe("kept");
+});

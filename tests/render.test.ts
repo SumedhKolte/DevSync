@@ -6,6 +6,7 @@ import { Login } from "../src/components/login";
 import { getDemoData } from "../src/lib/demo";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => null,
 }));
 afterEach(() => vi.useRealTimers());
 describe("server-rendered product contracts", () => {
