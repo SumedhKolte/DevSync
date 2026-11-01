@@ -32,6 +32,8 @@ on conflict (id) do update set keepalive_url = excluded.keepalive_url;
 
 `/healthz` returns `{"ok":true,"lastPollAt":…}`. A recent `lastPollAt` means the worker is reading the queue. Free services in a Render workspace share 750 instance hours a month, and an always-awake worker uses about 744. Move the worker to a paid plan if other free services need hours.
 
+The worker also pokes itself. While it runs on Render it requests its own public `/healthz` address (from `RENDER_EXTERNAL_URL`, which Render sets) every 9 minutes, which counts as inbound traffic and resets the 15-minute idle timer. This is the first line of defence. The Supabase job above is the backup: it wakes the instance if it ever restarts or sleeps, and it works even if the self-ping stops. Set `KEEPALIVE_ORIGIN` to override the address on another host. Failed self-pings log `worker.selfping_failed`; the start-up line is `worker.selfping_started`. Neither poke runs on a local machine, because the self-ping needs an HTTPS address.
+
 ## Provider settings
 
 GitHub App (`devsync-sumedh-local`):

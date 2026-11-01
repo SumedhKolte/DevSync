@@ -14,6 +14,7 @@ import {
   type ProviderTokens,
 } from "../src/lib/server/providers";
 import { ensureJiraWebhook } from "../src/lib/server/jira-webhooks";
+import { startSelfPing } from "../src/lib/server/keepalive";
 // Fail with the missing names rather than an opaque client error at startup.
 const missing = [
   "NEXT_PUBLIC_SUPABASE_URL",
@@ -43,8 +44,10 @@ const health = process.env.PORT
       response.end(JSON.stringify(known ? { ok: true, lastPollAt } : {}));
     }).listen(Number(process.env.PORT), "0.0.0.0")
   : null;
+let stopSelfPing = () => {};
 const stop = () => {
   stopping = true;
+  stopSelfPing();
   health?.close();
 };
 process.on("SIGINT", stop);
@@ -231,6 +234,13 @@ async function job(message: {
 }
 async function main() {
   log("worker.started");
+  // Render sets RENDER_EXTERNAL_URL for web services; KEEPALIVE_ORIGIN
+  // overrides it on another host that sleeps idle services.
+  if (health)
+    stopSelfPing = startSelfPing(
+      process.env.KEEPALIVE_ORIGIN || process.env.RENDER_EXTERNAL_URL,
+      log,
+    );
   while (!stopping) {
     try {
       const { data } = await checked(db.rpc("worker_read"));
